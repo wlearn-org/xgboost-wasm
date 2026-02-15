@@ -1,79 +1,173 @@
-# XGBoost In JavaScript: Port Evaluation (Feb 15, 2026)
+# @statsim/xgb
 
-## Why this exists
-You asked whether the current JavaScript XGBoost ecosystem is outdated and what we gain by building our own up-to-date port.
+XGBoost v3.2.0 compiled to WebAssembly. Training and inference in browsers and Node.js.
 
-## Quick answer
-Most JS XGBoost packages are wrappers around older builds or narrow inference bindings. A first-party StatSim port based on current upstream XGBoost gives us feature parity, model compatibility guarantees, reproducibility controls, and direct integration with `fit`/`jsee`/MCP workflows.
+Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0).
 
-## Current ecosystem snapshot
+## Install
 
-| Package | npm snapshot | Maintenance signal | Notes |
-|---|---|---|---|
-| `ml-xgboost` | `1.1.2` (published ~9 years ago) | Very stale | Historically useful, but effectively legacy. |
-| `xgboost` | `1.1.0` (published ~8 years ago) | Very stale | Legacy Node addon (`nuanio/xgboost-node`) focused on prediction. |
-| `@bonniernews/xgboost` | `2.0.0` (published ~3 years ago) | Stale fork | Forked Node binding line, not upstream-official JS runtime. |
-| `@fractal-solutions/xgboost-js` | `1.0.0` (published ~9 months ago) | Mixed | Pure-JS approach, but not tied to upstream `dmlc/xgboost` release cadence. |
-| `xgboost_node` | `0.4.2` (published ~3 months ago) | More active | Newer native binding line, but Linux-first and still ecosystem-fragmented. |
+```bash
+npm install @statsim/xgb
+```
 
-Takeaway: there are active packages, but the ecosystem is fragmented and most popular historical packages are clearly outdated.
+## Quick start
 
-## Upstream reference point (what “current” means)
-Official XGBoost latest release is `v3.2.0` (Feb 10, 2026). Recent upstream releases include algorithm and systems-level updates (for example: linear-model L2 regularization support in 3.2, categorical recoder + multi-target quantile regression in 3.1).
+```js
+import { loadXGB, DMatrix, Booster } from '@statsim/xgb'
 
-If we rely on older JS wrappers, we miss these improvements and risk model-format drift over time.
+await loadXGB()
 
-## Evidence from our current codebase
-Our existing wrapper in `fit` is aligned with an older API surface:
-- `fit/src/xgboost-wrapper.js:22` uses `objective: 'reg:linear'`.
-- `fit/src/xgboost-wrapper.js:28` uses `silent`, which has long been superseded by `verbosity` in modern XGBoost parameter docs.
-- `fit/src/xgboost.js:1` hardcodes a remote wasm asset URL (`https://statsim.com/assets/xgboost.wasm`) without explicit upstream version pinning in this module.
+// Create training data
+const dtrain = new DMatrix([[1, 2], [3, 4], [5, 6], [7, 8]])
+dtrain.setLabel([3, 7, 11, 15])
 
-This confirms your concern: our current integration is legacy-style.
+// Train
+const booster = new Booster({
+  objective: 'reg:squarederror',
+  max_depth: 3,
+  eta: 0.3,
+  verbosity: 0
+}, [dtrain])
 
-## What a StatSim port of latest XGBoost gives us
+for (let i = 0; i < 50; i++) {
+  booster.update(dtrain, i)
+}
 
-1. **Version parity and trust**
-Pin to upstream `v3.2.x`, track CVEs/bugfixes, and keep a clear compatibility matrix.
+// Predict
+const preds = booster.predict(dtrain) // Float32Array
 
-2. **Model compatibility guarantees**
-Round-trip tests against Python/R/CLI artifacts (JSON/UBJSON) reduce “it loads here but not there” failures.
+// Save model
+const model = booster.saveModel() // Uint8Array (UBJSON)
 
-3. **Reproducibility + auditability**
-Deterministic build inputs (toolchain, flags, commit hash), attestation-ready artifacts, and regression fixtures fit StatSim’s trust model.
+// Clean up — required, WASM memory is not garbage collected
+booster.dispose()
+dtrain.dispose()
+```
 
-4. **Portable privacy-preserving execution**
-Browser/Node WASM runtime means local inference/training without data upload, aligned with platform principles.
+## Convenience API
 
-5. **Unified developer + agent surface**
-A stable JS API can be exposed through `fit`, `jsee`, and MCP tools so agents call real gradient boosting computation, not approximations.
+```js
+import { loadXGB, train, predict, DMatrix } from '@statsim/xgb'
 
-6. **Performance control**
-We can tune for web workloads (WASM SIMD/threads, memory budget, worker model) instead of inheriting opaque defaults.
+await loadXGB()
 
-## Suggested implementation scope (pragmatic)
+// Train in one call
+const dtrain = new DMatrix([[1, 2], [3, 4], [5, 6], [7, 8]])
+dtrain.setLabel([3, 7, 11, 15])
 
-1. **Phase A (2-3 weeks): inference-first runtime**
-Build/ship pinned upstream `v3.2.x` WASM + model load/predict API + parity tests vs Python baseline.
+const booster = await train({
+  objective: 'reg:squarederror',
+  max_depth: 3,
+  verbosity: 0
+}, dtrain, 50)
 
-2. **Phase B (3-5 weeks): training support**
-Add training APIs and objective/metric coverage for the most used tasks (regression, binary/multiclass classification).
+const model = booster.saveModel()
+booster.dispose()
+dtrain.dispose()
 
-3. **Phase C: StatSim integration**
-Wrap as `@statsim/xgb` and integrate into `fit` + MCP tool endpoints with schema-tested IO.
+// Load model and predict
+const preds = await predict(model, [[2, 3], [6, 7]])
+// preds: Float32Array
+```
 
-## Sources
-- npm package pages:
-  - https://www.npmjs.com/package/ml-xgboost
-  - https://www.npmjs.com/package/xgboost
-  - https://www.npmjs.com/package/@bonniernews/xgboost
-  - https://www.npmjs.com/package/@fractal-solutions/xgboost-js
-  - https://www.npmjs.com/package/xgboost_node
-- package index metadata:
-  - https://libraries.io/npm/xgboost_node
-- XGBoost official releases:
-  - https://github.com/dmlc/xgboost/releases
-  - https://xgboost.readthedocs.io/en/stable/changes/v3.2.0.html
-  - https://xgboost.readthedocs.io/en/stable/changes/v3.1.0.html
-- XGBoost parameters doc:
-  - https://xgboost.readthedocs.io/en/stable/parameter.html
+## API
+
+### `loadXGB(options?)`
+
+Initialize the WASM module. Must be called before any other API. Returns the raw WASM module.
+
+Options:
+- `wasmUrl` — override the `.wasm` file URL (for bundlers that mangle paths)
+
+### `DMatrix(data, options?)`
+
+Create a data matrix.
+
+- `data` — `number[][]` (2D array) or `Float32Array`
+- `options.nrow`, `options.ncol` — required when `data` is `Float32Array`
+- `options.missing` — missing value indicator (default: `NaN`)
+- `options.label` — set labels at construction time
+
+Properties and methods:
+- `.rows` — number of rows
+- `.cols` — number of columns
+- `.setLabel(labels)` — set target labels (`number[]` or `Float32Array`)
+- `.setWeight(weights)` — set sample weights
+- `.dispose()` — free WASM memory (required, idempotent)
+
+### `Booster(params, cache?)`
+
+Create a booster for training.
+
+- `params` — XGBoost parameters object (see [XGBoost docs](https://xgboost.readthedocs.io/en/stable/parameter.html))
+- `cache` — array of `DMatrix` objects for cache hint
+
+Methods:
+- `.setParam(name, value)` — set a single parameter
+- `.update(dtrain, iteration)` — run one training round
+- `.predict(dtest, options?)` — predict, returns `Float32Array`
+  - `options.ntreeLimit` — limit number of trees (0 = all)
+  - `options.type` — prediction type (0 = normal, 1 = margin, etc.)
+- `.saveModel(format?)` — save model, returns `Uint8Array`
+  - `format` — `'ubj'` (default) or `'json'`
+- `.dispose()` — free WASM memory (required, idempotent)
+
+### `Booster.loadModel(buffer)`
+
+Load a model from a `Uint8Array` (UBJ or JSON format). Returns a `Booster`.
+
+### `train(params, dtrain, numRound?)`
+
+Convenience: create a booster, train for `numRound` iterations, return the booster.
+
+### `predict(modelBuffer, data)`
+
+Convenience: load a model, predict on data (2D array), return `Float32Array`. Disposes internal objects automatically.
+
+## Supported objectives
+
+Tested and verified:
+- `reg:squarederror` — regression
+- `binary:logistic` — binary classification (probabilities)
+- `multi:softprob` — multiclass classification (probabilities)
+- `count:poisson` — Poisson regression (counts)
+- `survival:cox` — Cox proportional hazards
+
+All XGBoost objectives should work — these are tested in CI.
+
+## Resource management
+
+WASM heap memory is not garbage collected. You **must** call `.dispose()` on every `DMatrix` and `Booster` when done. Double-dispose is safe (idempotent). A `FinalizationRegistry` safety net warns in development if you forget, but do not rely on it.
+
+```js
+const dm = new DMatrix(data)
+try {
+  // use dm...
+} finally {
+  dm.dispose()
+}
+```
+
+## Cross-runtime compatibility
+
+Models saved in Python XGBoost 3.2.0 load and predict identically in `@statsim/xgb` (verified with relative tolerance < 1e-4). Models saved from JS can be loaded in Python and vice versa.
+
+## Build from source
+
+Requires [Emscripten](https://emscripten.org/) (emsdk) activated.
+
+```bash
+# Clone XGBoost v3.2.0
+git clone --depth 1 --branch v3.2.0 --recurse-submodules \
+  https://github.com/dmlc/xgboost reference/xgboost-upstream
+
+# Build WASM
+bash scripts/build-wasm.sh
+
+# Run tests
+node test/test.js
+```
+
+## License
+
+Apache-2.0 (same as upstream XGBoost)
