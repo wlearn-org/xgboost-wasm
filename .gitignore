@@ -1,0 +1,10 @@
+node_modules/
+reference/
+build/
+wasm/
+*.log
+.DS_Store
+coverage/
+AGENTS.md
+CLAUDE.md
+.claude/

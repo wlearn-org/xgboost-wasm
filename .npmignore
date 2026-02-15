@@ -1,0 +1,28 @@
+# Documentation and planning files
+AGENTS.md
+CLAUDE.md
+PLAN.md
+.claude/
+
+# Development files
+test/
+reference/
+scripts/
+patches/
+build/
+
+# Config files
+.gitignore
+.npmignore
+
+# Lock files
+package-lock.json
+
+# Git
+.git/
+
+# Logs and temp files
+*.log
+.DS_Store
+coverage/
+node_modules/

@@ -1,0 +1,26 @@
+{
+  "name": "@statsim/xgb",
+  "version": "0.1.0",
+  "description": "XGBoost v3.2.0 compiled to WebAssembly — training and inference in browsers and Node.js",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src/",
+    "wasm/",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules test/test.js",
+    "build": "bash scripts/build-wasm.sh",
+    "verify": "bash scripts/verify-exports.sh"
+  },
+  "keywords": ["xgboost", "machine-learning", "gradient-boosting", "wasm", "webassembly", "statsim"],
+  "author": "Anton Zemlyansky",
+  "license": "Apache-2.0"
+}
