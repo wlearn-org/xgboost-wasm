@@ -2,7 +2,29 @@
 
 XGBoost v3.2.0 compiled to WebAssembly. Training and inference in browsers and Node.js.
 
-Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0).
+Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). Zero dependencies. ESM.
+
+## Why this package
+
+The existing JS XGBoost packages (`ml-xgboost`, `xgboost-js`) are built on XGBoost ~v0.7 from 2017 and haven't been updated since. They use deprecated parameters (`reg:linear`, `silent`) that were removed in XGBoost v2.0, do row-by-row prediction (one WASM call per row instead of batch), have broken multiclass support, no error handling on C API calls, and only support CommonJS.
+
+`@statsim/xgb` is built on the current XGBoost release:
+
+| | @statsim/xgb | ml-xgboost |
+|---|---|---|
+| XGBoost version | **v3.2.0** (2026) | ~v0.72 (2017) |
+| Module format | ESM | CJS |
+| Dependencies | zero | ml-matrix |
+| Prediction | batch (one call) | row-by-row |
+| Multiclass | works | broken in xgboost-js, manual hack in ml-xgboost |
+| Error handling | checks every C API call | none |
+| Memory safety | FinalizationRegistry + use-after-free guards | manual free only |
+| Model I/O | UBJ + JSON, buffer-based | fs.readFileSync (Node only) |
+| Browser support | full (ESM + import.meta.url) | partial (CJS, fs calls) |
+| Cross-runtime parity | verified vs Python 3.2.0 | not verified |
+| Last updated | 2026 | 2018 |
+
+The WASM binary is larger (4.3 MB vs ~1.5 MB) because XGBoost v3.2.0 has 6 major versions more code. That's the cost of having current, working XGBoost.
 
 ## Install
 
