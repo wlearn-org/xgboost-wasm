@@ -2,9 +2,9 @@ node_modules/
 reference/
 build/
 wasm/
+*.md
+!README.md
+!CHANGELOG.md
 *.log
 .DS_Store
 coverage/
-AGENTS.md
-CLAUDE.md
-.claude/

@@ -4,7 +4,7 @@ import { getXGB } from './wasm.js'
 const registry = typeof FinalizationRegistry !== 'undefined'
   ? new FinalizationRegistry(({ ptr, freeFn }) => {
     if (ptr[0]) {
-      console.warn('@statsim/xgb: Booster was not disposed — calling free() automatically. This is a bug in your code.')
+      console.warn('@wlearn/xgboost: Booster was not disposed — calling free() automatically. This is a bug in your code.')
       freeFn(ptr[0])
     }
   })

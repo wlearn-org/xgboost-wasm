@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-UPSTREAM_DIR="${PROJECT_DIR}/reference/xgboost-upstream"
+UPSTREAM_DIR="${PROJECT_DIR}/upstream/xgboost"
 BUILD_DIR="${PROJECT_DIR}/build"
 OUTPUT_DIR="${PROJECT_DIR}/wasm"
 
@@ -17,9 +17,9 @@ if ! command -v emcc &> /dev/null; then
   exit 1
 fi
 
-if [ ! -d "$UPSTREAM_DIR" ]; then
+if [ ! -f "$UPSTREAM_DIR/CMakeLists.txt" ]; then
   echo "ERROR: XGBoost upstream not found at ${UPSTREAM_DIR}"
-  echo "  git clone --depth 1 --branch v3.2.0 --recurse-submodules https://github.com/dmlc/xgboost reference/xgboost-upstream"
+  echo "  git submodule update --init --recursive"
   exit 1
 fi
 

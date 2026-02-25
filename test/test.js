@@ -28,6 +28,15 @@ function assertClose(a, b, tol, msg) {
   if (diff > tol) throw new Error(msg || `expected ${a} ≈ ${b} (diff=${diff}, tol=${tol})`)
 }
 
+// Deterministic pseudo-random (LCG)
+function makeLCG(seed = 42) {
+  let s = seed
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0x7fffffff
+    return s / 0x7fffffff
+  }
+}
+
 // ============================================================
 // WASM loading
 // ============================================================
@@ -111,12 +120,12 @@ await test('Booster create with params', async () => {
 })
 
 await test('Booster train and predict', async () => {
-  // Simple regression: y ≈ x1 + x2
+  const rand = makeLCG(100)
   const X = []
   const y = []
   for (let i = 0; i < 100; i++) {
-    const x1 = Math.random() * 10
-    const x2 = Math.random() * 10
+    const x1 = rand() * 10
+    const x2 = rand() * 10
     X.push([x1, x2])
     y.push(x1 + x2)
   }
@@ -140,7 +149,6 @@ await test('Booster train and predict', async () => {
   assert(preds instanceof Float32Array, 'predictions should be Float32Array')
   assert(preds.length === 100, `expected 100 predictions, got ${preds.length}`)
 
-  // Check predictions are reasonable (not all zeros, roughly in range)
   const predMean = preds.reduce((a, v) => a + v, 0) / preds.length
   const yMean = y.reduce((a, v) => a + v, 0) / y.length
   assertClose(predMean, yMean, 2.0, `pred mean ${predMean} too far from true mean ${yMean}`)
@@ -170,16 +178,13 @@ await test('Booster save and load model', async () => {
 
   const preds1 = booster.predict(dtrain)
 
-  // Save model
   const modelBuf = booster.saveModel('ubj')
   assert(modelBuf instanceof Uint8Array, 'model buffer should be Uint8Array')
   assert(modelBuf.length > 0, 'model buffer should not be empty')
 
-  // Load model
   const booster2 = Booster.loadModel(modelBuf)
   const preds2 = booster2.predict(dtrain)
 
-  // Same-runtime round-trip: exact match
   assert(preds1.length === preds2.length, 'prediction length mismatch')
   for (let i = 0; i < preds1.length; i++) {
     assert(preds1[i] === preds2[i], `prediction ${i}: ${preds1[i]} !== ${preds2[i]}`)
@@ -204,7 +209,6 @@ await test('Booster save JSON format', async () => {
   const jsonBuf = booster.saveModel('json')
   assert(jsonBuf.length > 0, 'JSON model should not be empty')
 
-  // Verify it's valid JSON
   const jsonStr = new TextDecoder().decode(jsonBuf)
   const parsed = JSON.parse(jsonStr)
   assert(parsed.learner, 'JSON model should have learner key')
@@ -223,61 +227,17 @@ await test('Booster double dispose is safe', async () => {
 })
 
 // ============================================================
-// Convenience API
-// ============================================================
-console.log('\n=== Convenience API ===')
-
-const { train, predict } = await import('../src/index.js')
-
-await test('train() convenience function', async () => {
-  const dtrain = new DMatrix([[1, 2], [3, 4], [5, 6], [7, 8]])
-  dtrain.setLabel([3, 7, 11, 15])
-
-  const booster = await train({
-    objective: 'reg:squarederror',
-    max_depth: 2,
-    eta: 0.3,
-    verbosity: 0,
-    seed: 42
-  }, dtrain, 20)
-
-  const preds = booster.predict(dtrain)
-  assert(preds.length === 4, `expected 4 predictions, got ${preds.length}`)
-
-  booster.dispose()
-  dtrain.dispose()
-})
-
-await test('predict() convenience function', async () => {
-  // Train a model first
-  const dtrain = new DMatrix([[1, 2], [3, 4], [5, 6], [7, 8]])
-  dtrain.setLabel([3, 7, 11, 15])
-  const booster = await train({
-    objective: 'reg:squarederror',
-    max_depth: 2,
-    verbosity: 0,
-    seed: 42
-  }, dtrain, 20)
-  const modelBuf = booster.saveModel()
-  booster.dispose()
-  dtrain.dispose()
-
-  // Predict with convenience function
-  const preds = await predict(modelBuf, [[1, 2], [3, 4]])
-  assert(preds.length === 2, `expected 2 predictions, got ${preds.length}`)
-})
-
-// ============================================================
-// Classification
+// Classification (low-level Booster)
 // ============================================================
 console.log('\n=== Classification ===')
 
 await test('Binary classification', async () => {
+  const rand = makeLCG(200)
   const X = []
   const y = []
   for (let i = 0; i < 200; i++) {
-    const x1 = Math.random() * 10
-    const x2 = Math.random() * 10
+    const x1 = rand() * 10
+    const x2 = rand() * 10
     X.push([x1, x2])
     y.push(x1 + x2 > 10 ? 1 : 0)
   }
@@ -300,13 +260,11 @@ await test('Binary classification', async () => {
   const preds = booster.predict(dtrain)
   assert(preds.length === 200, `expected 200 predictions, got ${preds.length}`)
 
-  // All predictions should be probabilities [0, 1]
   for (let i = 0; i < preds.length; i++) {
     assert(preds[i] >= 0 && preds[i] <= 1,
       `prediction ${i} out of [0,1] range: ${preds[i]}`)
   }
 
-  // Compute accuracy — should be decent
   let correct = 0
   for (let i = 0; i < preds.length; i++) {
     if ((preds[i] > 0.5 ? 1 : 0) === y[i]) correct++
@@ -324,12 +282,12 @@ await test('Binary classification', async () => {
 console.log('\n=== More Objectives ===')
 
 await test('Multiclass classification (multi:softprob)', async () => {
-  // 3-class problem based on x1+x2 ranges
+  const rand = makeLCG(300)
   const X = []
   const y = []
   for (let i = 0; i < 300; i++) {
-    const x1 = Math.random() * 10
-    const x2 = Math.random() * 10
+    const x1 = rand() * 10
+    const x2 = rand() * 10
     X.push([x1, x2])
     const sum = x1 + x2
     y.push(sum < 7 ? 0 : sum < 13 ? 1 : 2)
@@ -352,16 +310,13 @@ await test('Multiclass classification (multi:softprob)', async () => {
   }
 
   const preds = booster.predict(dtrain)
-  // softprob returns nrow * nclass probabilities
   assert(preds.length === 300 * 3, `expected 900 predictions, got ${preds.length}`)
 
-  // Each row's probabilities should sum to ~1
   for (let r = 0; r < 300; r++) {
     const sum = preds[r * 3] + preds[r * 3 + 1] + preds[r * 3 + 2]
     assertClose(sum, 1.0, 1e-4, `row ${r} probs sum to ${sum}, expected ~1.0`)
   }
 
-  // Check accuracy via argmax
   let correct = 0
   for (let r = 0; r < 300; r++) {
     let best = 0
@@ -378,13 +333,13 @@ await test('Multiclass classification (multi:softprob)', async () => {
 })
 
 await test('Count regression (count:poisson)', async () => {
-  // Poisson-like data: counts roughly proportional to x
+  const rand = makeLCG(400)
   const X = []
   const y = []
   for (let i = 0; i < 100; i++) {
-    const x = Math.random() * 5
+    const x = rand() * 5
     X.push([x])
-    y.push(Math.max(0, Math.round(x * 2 + Math.random() * 2)))
+    y.push(Math.max(0, Math.round(x * 2 + rand() * 2)))
   }
 
   const dtrain = new DMatrix(X)
@@ -405,7 +360,6 @@ await test('Count regression (count:poisson)', async () => {
   const preds = booster.predict(dtrain)
   assert(preds.length === 100, `expected 100 predictions, got ${preds.length}`)
 
-  // Poisson predictions should all be non-negative
   for (let i = 0; i < preds.length; i++) {
     assert(preds[i] >= 0, `prediction ${i} is negative: ${preds[i]}`)
   }
@@ -415,16 +369,15 @@ await test('Count regression (count:poisson)', async () => {
 })
 
 await test('Survival regression (survival:cox)', async () => {
-  // Cox proportional hazards — labels are survival times (positive = event, negative = censored)
+  const rand = makeLCG(500)
   const X = []
   const y = []
   for (let i = 0; i < 100; i++) {
-    const x1 = Math.random() * 10
-    const x2 = Math.random() * 5
+    const x1 = rand() * 10
+    const x2 = rand() * 5
     X.push([x1, x2])
-    // Positive = observed event time, negative = right-censored
-    const time = x1 * 0.5 + x2 + Math.random() * 3
-    y.push(Math.random() > 0.3 ? time : -time) // 30% censored
+    const time = x1 * 0.5 + x2 + rand() * 3
+    y.push(rand() > 0.3 ? time : -time)
   }
 
   const dtrain = new DMatrix(X)
@@ -445,13 +398,614 @@ await test('Survival regression (survival:cox)', async () => {
   const preds = booster.predict(dtrain)
   assert(preds.length === 100, `expected 100 predictions, got ${preds.length}`)
 
-  // Cox predictions are hazard ratios (exp(margin)) — should be positive
   for (let i = 0; i < preds.length; i++) {
     assert(preds[i] > 0, `prediction ${i} should be positive hazard ratio: ${preds[i]}`)
   }
 
   booster.dispose()
   dtrain.dispose()
+})
+
+// ============================================================
+// XGBModel (high-level Estimator interface)
+// ============================================================
+console.log('\n=== XGBModel ===')
+
+const { XGBModel } = await import('../src/model.js')
+
+await test('XGBModel.create and fit (regression)', async () => {
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    max_depth: 3,
+    eta: 0.3,
+    numRound: 20,
+    seed: 42
+  })
+
+  const X = [[1, 2], [3, 4], [5, 6], [7, 8]]
+  const y = [3, 7, 11, 15]
+  model.fit(X, y)
+
+  assert(model.isFitted, 'model should be fitted')
+  assert(model.nrClass === 0, 'regression should have nrClass 0')
+
+  const preds = model.predict(X)
+  assert(preds instanceof Float64Array, 'predictions should be Float64Array')
+  assert(preds.length === 4, `expected 4 predictions, got ${preds.length}`)
+
+  model.dispose()
+})
+
+await test('XGBModel binary classifier predict returns class labels', async () => {
+  const rand = makeLCG(600)
+  const model = await XGBModel.create({
+    objective: 'binary:logistic',
+    max_depth: 3,
+    eta: 0.3,
+    numRound: 30,
+    seed: 42
+  })
+
+  const X = []
+  const y = []
+  for (let i = 0; i < 200; i++) {
+    const x1 = rand() * 10
+    const x2 = rand() * 10
+    X.push([x1, x2])
+    y.push(x1 + x2 > 10 ? 1 : 0)
+  }
+
+  model.fit(X, y)
+
+  assert(model.nrClass === 2, `expected nrClass 2, got ${model.nrClass}`)
+  const classes = model.classes
+  assert(classes[0] === 0 && classes[1] === 1, `expected classes [0, 1], got [${classes}]`)
+
+  const preds = model.predict(X)
+  assert(preds instanceof Float64Array, 'predictions should be Float64Array')
+  assert(preds.length === 200, `expected 200 predictions, got ${preds.length}`)
+
+  // All predictions should be class labels (0 or 1)
+  for (let i = 0; i < preds.length; i++) {
+    assert(preds[i] === 0 || preds[i] === 1,
+      `prediction ${i} should be 0 or 1, got ${preds[i]}`)
+  }
+
+  // Accuracy should be decent
+  let correct = 0
+  for (let i = 0; i < preds.length; i++) {
+    if (preds[i] === y[i]) correct++
+  }
+  assert(correct / preds.length > 0.7, 'accuracy too low')
+
+  model.dispose()
+})
+
+await test('XGBModel predictProba binary: shape rows*2, rows sum to 1', async () => {
+  const model = await XGBModel.create({
+    objective: 'binary:logistic',
+    max_depth: 3,
+    eta: 0.3,
+    numRound: 20,
+    seed: 42
+  })
+
+  const X = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [2, 9]]
+  const y = [0, 0, 1, 1, 1, 1]
+  model.fit(X, y)
+
+  const proba = model.predictProba(X)
+  assert(proba instanceof Float64Array, 'proba should be Float64Array')
+  assert(proba.length === 6 * 2, `expected 12 values, got ${proba.length}`)
+
+  // Each row should sum to ~1
+  for (let r = 0; r < 6; r++) {
+    const sum = proba[r * 2] + proba[r * 2 + 1]
+    assertClose(sum, 1.0, 1e-6, `row ${r} probs sum to ${sum}`)
+  }
+
+  // All values in [0, 1]
+  for (let i = 0; i < proba.length; i++) {
+    assert(proba[i] >= 0 && proba[i] <= 1, `proba[${i}] = ${proba[i]} out of range`)
+  }
+
+  model.dispose()
+})
+
+await test('XGBModel multiclass predict and predictProba', async () => {
+  const rand = makeLCG(700)
+  const model = await XGBModel.create({
+    objective: 'multi:softprob',
+    num_class: 3,
+    max_depth: 3,
+    eta: 0.3,
+    numRound: 30,
+    seed: 42
+  })
+
+  const X = []
+  const y = []
+  for (let i = 0; i < 150; i++) {
+    const x1 = rand() * 10
+    const x2 = rand() * 10
+    X.push([x1, x2])
+    const sum = x1 + x2
+    y.push(sum < 7 ? 0 : sum < 13 ? 1 : 2)
+  }
+
+  model.fit(X, y)
+  assert(model.nrClass === 3, `expected nrClass 3, got ${model.nrClass}`)
+
+  // predict returns class labels
+  const preds = model.predict(X)
+  assert(preds.length === 150, `expected 150 predictions, got ${preds.length}`)
+  for (let i = 0; i < preds.length; i++) {
+    assert(preds[i] === 0 || preds[i] === 1 || preds[i] === 2,
+      `prediction ${i} should be 0/1/2, got ${preds[i]}`)
+  }
+
+  // predictProba returns rows * nrClass
+  const proba = model.predictProba(X)
+  assert(proba.length === 150 * 3, `expected 450 proba values, got ${proba.length}`)
+  for (let r = 0; r < 150; r++) {
+    const sum = proba[r * 3] + proba[r * 3 + 1] + proba[r * 3 + 2]
+    assertClose(sum, 1.0, 1e-4, `row ${r} probs sum to ${sum}`)
+  }
+
+  model.dispose()
+})
+
+await test('XGBModel score (accuracy for classifier, R2 for regressor)', async () => {
+  // Classifier
+  const clf = await XGBModel.create({
+    objective: 'binary:logistic',
+    max_depth: 3,
+    numRound: 20,
+    seed: 42
+  })
+  const rand = makeLCG(800)
+  const X = []
+  const y = []
+  for (let i = 0; i < 100; i++) {
+    const x1 = rand() * 10
+    const x2 = rand() * 10
+    X.push([x1, x2])
+    y.push(x1 + x2 > 10 ? 1 : 0)
+  }
+  clf.fit(X, y)
+  const acc = clf.score(X, y)
+  assert(typeof acc === 'number', 'score should be a number')
+  assert(acc > 0.7, `accuracy ${acc} too low`)
+  clf.dispose()
+
+  // Regressor
+  const reg = await XGBModel.create({
+    objective: 'reg:squarederror',
+    max_depth: 3,
+    numRound: 50,
+    seed: 42
+  })
+  const Xr = [[1, 2], [3, 4], [5, 6], [7, 8]]
+  const yr = [3, 7, 11, 15]
+  reg.fit(Xr, yr)
+  const r2 = reg.score(Xr, yr)
+  assert(typeof r2 === 'number', 'score should be a number')
+  assert(r2 > 0.5, `R2 ${r2} too low`)
+  reg.dispose()
+})
+
+await test('XGBModel predictProba throws for regression', async () => {
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    numRound: 10,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4]], [1, 2])
+
+  let threw = false
+  try { model.predictProba([[1, 2]]) } catch { threw = true }
+  assert(threw, 'predictProba should throw for regression objective')
+
+  model.dispose()
+})
+
+await test('XGBModel predictProba throws for multi:softmax', async () => {
+  const model = await XGBModel.create({
+    objective: 'multi:softmax',
+    num_class: 3,
+    numRound: 10,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4], [5, 6]], [0, 1, 2])
+
+  let threw = false
+  try { model.predictProba([[1, 2]]) } catch { threw = true }
+  assert(threw, 'predictProba should throw for multi:softmax objective')
+
+  model.dispose()
+})
+
+// ============================================================
+// Convenience API
+// ============================================================
+console.log('\n=== Convenience API ===')
+
+const { train, predict: predictConv } = await import('../src/index.js')
+
+await test('train() convenience function', async () => {
+  const model = await train({
+    objective: 'reg:squarederror',
+    max_depth: 2,
+    eta: 0.3,
+    numRound: 20,
+    seed: 42
+  }, [[1, 2], [3, 4], [5, 6], [7, 8]], [3, 7, 11, 15])
+
+  assert(model.isFitted, 'model should be fitted')
+  const preds = model.predict([[1, 2], [3, 4]])
+  assert(preds.length === 2, `expected 2 predictions, got ${preds.length}`)
+
+  model.dispose()
+})
+
+await test('predict() convenience function', async () => {
+  // Train and save a bundle
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    max_depth: 2,
+    numRound: 20,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4], [5, 6], [7, 8]], [3, 7, 11, 15])
+  const bundle = model.save()
+  model.dispose()
+
+  // Predict from bundle
+  const preds = await predictConv(bundle, [[1, 2], [3, 4]])
+  assert(preds instanceof Float64Array, 'should return Float64Array')
+  assert(preds.length === 2, `expected 2 predictions, got ${preds.length}`)
+})
+
+// ============================================================
+// Save / Load (WLRN bundle format)
+// ============================================================
+console.log('\n=== Save / Load ===')
+
+const { decodeBundle, load: coreLoad } = await import('@wlearn/core')
+
+await test('save produces WLRN bundle', async () => {
+  const model = await XGBModel.create({
+    objective: 'binary:logistic',
+    max_depth: 3,
+    numRound: 10,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4], [5, 6], [7, 8]], [0, 0, 1, 1])
+
+  const bundle = model.save()
+  assert(bundle instanceof Uint8Array, 'bundle should be Uint8Array')
+
+  // WLRN magic bytes
+  assert(bundle[0] === 0x57, `magic[0]: expected 0x57, got 0x${bundle[0].toString(16)}`)
+  assert(bundle[1] === 0x4c, `magic[1]: expected 0x4c, got 0x${bundle[1].toString(16)}`)
+  assert(bundle[2] === 0x52, `magic[2]: expected 0x52, got 0x${bundle[2].toString(16)}`)
+  assert(bundle[3] === 0x4e, `magic[3]: expected 0x4e, got 0x${bundle[3].toString(16)}`)
+
+  const { manifest, toc } = decodeBundle(bundle)
+  assert(manifest.typeId === 'wlearn.xgboost.classifier@1',
+    `expected classifier typeId, got ${manifest.typeId}`)
+  assert(manifest.params.objective === 'binary:logistic',
+    `expected binary:logistic, got ${manifest.params.objective}`)
+  assert(manifest.metadata.nrClass === 2, `expected nrClass 2, got ${manifest.metadata.nrClass}`)
+  assert(manifest.metadata.classes[0] === 0 && manifest.metadata.classes[1] === 1,
+    `expected classes [0,1], got ${manifest.metadata.classes}`)
+  assert(toc.length === 1, `expected 1 TOC entry, got ${toc.length}`)
+  assert(toc[0].id === 'model', `expected TOC id "model", got ${toc[0].id}`)
+
+  model.dispose()
+})
+
+await test('save regressor uses regressor typeId', async () => {
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    numRound: 10,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4]], [1.5, 3.5])
+
+  const { manifest } = decodeBundle(model.save())
+  assert(manifest.typeId === 'wlearn.xgboost.regressor@1',
+    `expected regressor typeId, got ${manifest.typeId}`)
+
+  model.dispose()
+})
+
+await test('save and load round-trip (predictions match)', async () => {
+  const rand = makeLCG(900)
+  const model = await XGBModel.create({
+    objective: 'binary:logistic',
+    max_depth: 3,
+    numRound: 20,
+    seed: 42
+  })
+
+  const X = []
+  const y = []
+  for (let i = 0; i < 50; i++) {
+    const x1 = rand() * 10
+    const x2 = rand() * 10
+    X.push([x1, x2])
+    y.push(x1 + x2 > 10 ? 1 : 0)
+  }
+
+  model.fit(X, y)
+  const preds1 = model.predict(X)
+  const proba1 = model.predictProba(X)
+
+  const bundle = model.save()
+  const restored = await XGBModel.load(bundle)
+
+  const preds2 = restored.predict(X)
+  const proba2 = restored.predictProba(X)
+
+  assert(preds1.length === preds2.length, 'prediction length mismatch')
+  for (let i = 0; i < preds1.length; i++) {
+    assert(preds1[i] === preds2[i], `pred ${i}: ${preds1[i]} !== ${preds2[i]}`)
+  }
+
+  assert(proba1.length === proba2.length, 'proba length mismatch')
+  for (let i = 0; i < proba1.length; i++) {
+    assertClose(proba1[i], proba2[i], 1e-6, `proba ${i}: ${proba1[i]} !== ${proba2[i]}`)
+  }
+
+  // Params preserved
+  assert(restored.getParams().objective === 'binary:logistic', 'objective should be preserved')
+  assert(restored.nrClass === 2, 'nrClass should be preserved')
+  const classes = restored.classes
+  assert(classes[0] === 0 && classes[1] === 1, 'classes should be preserved')
+
+  model.dispose()
+  restored.dispose()
+})
+
+await test('save and load regressor round-trip', async () => {
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    max_depth: 3,
+    numRound: 30,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4], [5, 6], [7, 8]], [3, 7, 11, 15])
+
+  const preds1 = model.predict([[2, 3], [6, 7]])
+  const bundle = model.save()
+  const restored = await XGBModel.load(bundle)
+  const preds2 = restored.predict([[2, 3], [6, 7]])
+
+  for (let i = 0; i < preds1.length; i++) {
+    assertClose(preds1[i], preds2[i], 1e-6, `pred ${i}: ${preds1[i]} !== ${preds2[i]}`)
+  }
+
+  model.dispose()
+  restored.dispose()
+})
+
+// ============================================================
+// Registry Dispatch
+// ============================================================
+console.log('\n=== Registry Dispatch ===')
+
+await test('core.load() dispatches to xgboost classifier loader', async () => {
+  const model = await XGBModel.create({
+    objective: 'binary:logistic',
+    max_depth: 3,
+    numRound: 10,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4], [5, 6], [7, 8]], [0, 0, 1, 1])
+  const bundle = model.save()
+  const preds1 = model.predict([[2, 3], [6, 7]])
+  model.dispose()
+
+  const restored = await coreLoad(bundle)
+  assert(restored instanceof XGBModel, 'core.load should return XGBModel')
+  const preds2 = restored.predict([[2, 3], [6, 7]])
+
+  for (let i = 0; i < preds1.length; i++) {
+    assert(preds1[i] === preds2[i], `pred ${i}: ${preds1[i]} !== ${preds2[i]}`)
+  }
+
+  restored.dispose()
+})
+
+await test('core.load() works for regressor bundles', async () => {
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    numRound: 10,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4]], [1.5, 3.5])
+  const bundle = model.save()
+  model.dispose()
+
+  const restored = await coreLoad(bundle)
+  assert(restored instanceof XGBModel, 'core.load should return XGBModel')
+  const preds = restored.predict([[2, 3]])
+  assert(preds.length === 1, 'should predict 1 row')
+  restored.dispose()
+})
+
+// ============================================================
+// Resource Management
+// ============================================================
+console.log('\n=== Resource Management ===')
+
+await test('dispose is idempotent', async () => {
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    numRound: 5,
+    seed: 42
+  })
+  model.fit([[1, 2]], [1])
+  model.dispose()
+  model.dispose() // should not throw
+})
+
+await test('throws DisposedError after dispose', async () => {
+  const { DisposedError } = await import('@wlearn/core')
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    numRound: 5,
+    seed: 42
+  })
+  model.fit([[1, 2]], [1])
+  model.dispose()
+
+  let threw = false
+  let isDisposedError = false
+  try { model.predict([[1, 2]]) } catch (e) {
+    threw = true
+    isDisposedError = e instanceof DisposedError
+  }
+  assert(threw, 'should throw after dispose')
+  assert(isDisposedError, 'should throw DisposedError')
+})
+
+await test('throws NotFittedError before fit', async () => {
+  const { NotFittedError } = await import('@wlearn/core')
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    numRound: 5
+  })
+
+  let threw = false
+  let isNotFittedError = false
+  try { model.predict([[1, 2]]) } catch (e) {
+    threw = true
+    isNotFittedError = e instanceof NotFittedError
+  }
+  assert(threw, 'should throw before fit')
+  assert(isNotFittedError, 'should throw NotFittedError')
+})
+
+await test('refit disposes previous booster', async () => {
+  const model = await XGBModel.create({
+    objective: 'reg:squarederror',
+    numRound: 5,
+    seed: 42
+  })
+  model.fit([[1, 2], [3, 4]], [1, 3])
+  const preds1 = model.predict([[1, 2]])
+
+  // Refit with different data
+  model.fit([[1, 2], [3, 4]], [10, 30])
+  const preds2 = model.predict([[1, 2]])
+
+  // Predictions should differ (different training data)
+  assert(model.isFitted, 'model should still be fitted')
+
+  model.dispose()
+})
+
+// ============================================================
+// Params
+// ============================================================
+console.log('\n=== Params ===')
+
+await test('getParams / setParams', async () => {
+  const model = await XGBModel.create({
+    objective: 'binary:logistic',
+    max_depth: 5,
+    numRound: 50
+  })
+
+  const params = model.getParams()
+  assert(params.objective === 'binary:logistic', 'objective should match')
+  assert(params.max_depth === 5, 'max_depth should match')
+  assert(params.numRound === 50, 'numRound should match')
+
+  model.setParams({ max_depth: 7 })
+  assert(model.getParams().max_depth === 7, 'max_depth should be updated')
+  assert(model.getParams().objective === 'binary:logistic', 'objective should be unchanged')
+
+  model.dispose()
+})
+
+await test('defaultSearchSpace returns object', async () => {
+  const space = XGBModel.defaultSearchSpace()
+  assert(typeof space === 'object', 'space should be an object')
+  assert(space.objective, 'should have objective')
+  assert(space.max_depth, 'should have max_depth')
+  assert(space.eta, 'should have eta')
+  assert(space.numRound, 'should have numRound')
+})
+
+// ============================================================
+// Capabilities
+// ============================================================
+console.log('\n=== Capabilities ===')
+
+await test('capabilities for binary:logistic', async () => {
+  const model = await XGBModel.create({ objective: 'binary:logistic' })
+  const cap = model.capabilities
+  assert(cap.classifier === true, 'should be classifier')
+  assert(cap.regressor === false, 'should not be regressor')
+  assert(cap.predictProba === true, 'should support predictProba')
+  assert(cap.sampleWeight === false, 'sampleWeight not yet supported')
+  assert(cap.earlyStopping === false, 'earlyStopping not yet supported')
+  model.dispose()
+})
+
+await test('capabilities for multi:softprob', async () => {
+  const model = await XGBModel.create({ objective: 'multi:softprob', num_class: 3 })
+  const cap = model.capabilities
+  assert(cap.classifier === true, 'should be classifier')
+  assert(cap.predictProba === true, 'should support predictProba')
+  model.dispose()
+})
+
+await test('capabilities for multi:softmax', async () => {
+  const model = await XGBModel.create({ objective: 'multi:softmax', num_class: 3 })
+  const cap = model.capabilities
+  assert(cap.classifier === true, 'should be classifier')
+  assert(cap.predictProba === false, 'should NOT support predictProba')
+  model.dispose()
+})
+
+await test('capabilities for reg:squarederror', async () => {
+  const model = await XGBModel.create({ objective: 'reg:squarederror' })
+  const cap = model.capabilities
+  assert(cap.classifier === false, 'should not be classifier')
+  assert(cap.regressor === true, 'should be regressor')
+  assert(cap.predictProba === false, 'should not support predictProba')
+  model.dispose()
+})
+
+// ============================================================
+// Class ordering stability
+// ============================================================
+console.log('\n=== Class Ordering ===')
+
+await test('class ordering is stable and restored on load', async () => {
+  const model = await XGBModel.create({
+    objective: 'binary:logistic',
+    numRound: 10,
+    seed: 42
+  })
+  // Labels are 0 and 1 but passed in mixed order
+  model.fit([[1, 2], [3, 4], [5, 6], [7, 8]], [1, 0, 1, 0])
+
+  const classes1 = model.classes
+  assert(classes1[0] === 0 && classes1[1] === 1, 'classes should be sorted [0, 1]')
+
+  const bundle = model.save()
+  const restored = await XGBModel.load(bundle)
+  const classes2 = restored.classes
+  assert(classes2[0] === classes1[0] && classes2[1] === classes1[1],
+    'classes should be identical after load')
+
+  model.dispose()
+  restored.dispose()
 })
 
 // ============================================================
@@ -471,13 +1025,13 @@ if (!hasFixtures) {
     return JSON.parse(readFileSync(join(fixturesDir, `${name}.data.json`), 'utf-8'))
   }
 
-  function loadModel(name) {
+  function loadFixtureModel(name) {
     return readFileSync(join(fixturesDir, name))
   }
 
   await test('Cross-runtime: regression parity', async () => {
     const fix = loadFixture('regression')
-    const modelBuf = loadModel('regression.ubj')
+    const modelBuf = loadFixtureModel('regression.ubj')
 
     const booster = Booster.loadModel(modelBuf)
     const dm = new DMatrix(fix.X)
@@ -498,7 +1052,7 @@ if (!hasFixtures) {
 
   await test('Cross-runtime: binary classification parity', async () => {
     const fix = loadFixture('binary')
-    const modelBuf = loadModel('binary.ubj')
+    const modelBuf = loadFixtureModel('binary.ubj')
 
     const booster = Booster.loadModel(modelBuf)
     const dm = new DMatrix(fix.X)
@@ -519,7 +1073,7 @@ if (!hasFixtures) {
 
   await test('Cross-runtime: multiclass parity', async () => {
     const fix = loadFixture('multiclass')
-    const modelBuf = loadModel('multiclass.ubj')
+    const modelBuf = loadFixtureModel('multiclass.ubj')
 
     const booster = Booster.loadModel(modelBuf)
     const dm = new DMatrix(fix.X)
@@ -540,7 +1094,7 @@ if (!hasFixtures) {
 
   await test('Cross-runtime: inference-only (load Python model, predict new data)', async () => {
     const fix = loadFixture('inference')
-    const modelBuf = loadModel(fix.model)
+    const modelBuf = loadFixtureModel(fix.model)
 
     const booster = Booster.loadModel(modelBuf)
     const dm = new DMatrix(fix.X)

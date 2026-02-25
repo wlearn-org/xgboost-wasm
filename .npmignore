@@ -2,11 +2,13 @@
 AGENTS.md
 CLAUDE.md
 PLAN.md
+UPSTREAM.md
 .claude/
 
 # Development files
 test/
 reference/
+upstream/
 scripts/
 patches/
 build/
