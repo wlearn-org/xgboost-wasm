@@ -128,6 +128,12 @@ export class XGBModel {
     // Default verbosity to 0 (silent) unless user set it
     if (!('verbosity' in xgbParams)) xgbParams.verbosity = 0
 
+    // Auto-set num_class for multi-class objectives
+    const obj = xgbParams.objective || ''
+    if (obj.startsWith('multi:') && !('num_class' in xgbParams) && this.#nrClass > 0) {
+      xgbParams.num_class = this.#nrClass
+    }
+
     // Create Booster and train
     const booster = new Booster(xgbParams, [dm])
     for (let i = 0; i < numRound; i++) {

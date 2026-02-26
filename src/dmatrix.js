@@ -63,8 +63,8 @@ export class DMatrix {
     const outPtr = wasm._malloc(4)
 
     // XGDMatrixCreateFromMat(float *data, bst_ulong nrow, bst_ulong ncol, float missing, DMatrixHandle *out)
-    // Legalized: (i32 data, i32 nrow_lo, i32 nrow_hi, i32 ncol_lo, i32 ncol_hi, f32 missing, i32 out)
-    const ret = wasm._XGDMatrixCreateFromMat(dataPtr, rows, 0, cols, 0, missing, outPtr)
+    // bst_ulong = uint64_t, passed as BigInt with WASM_BIGINT=1
+    const ret = wasm._XGDMatrixCreateFromMat(dataPtr, BigInt(rows), BigInt(cols), missing, outPtr)
     if (ret !== 0) {
       wasm._free(dataPtr)
       wasm._free(outPtr)
@@ -127,9 +127,9 @@ export class DMatrix {
     wasm.HEAPF32.set(arr, ptr / 4)
 
     // XGDMatrixSetFloatInfo(DMatrixHandle, const char *field, const float *array, bst_ulong len)
-    // Legalized: (i32 handle, i32 field_str, i32 array_ptr, i32 len_lo, i32 len_hi)
+    // bst_ulong = uint64_t, passed as BigInt with WASM_BIGINT=1
     const ret = withCString(wasm, field, (fieldPtr) =>
-      wasm._XGDMatrixSetFloatInfo(this.handle, fieldPtr, ptr, arr.length, 0)
+      wasm._XGDMatrixSetFloatInfo(this.handle, fieldPtr, ptr, BigInt(arr.length))
     )
 
     wasm._free(ptr)

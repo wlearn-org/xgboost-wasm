@@ -52,7 +52,7 @@ export class Booster {
     const wasm = getXGB()
 
     // XGBoosterCreate(DMatrixHandle cache[], bst_ulong len, BoosterHandle *out)
-    // Legalized: (i32 cache_ptr, i32 len_lo, i32 len_hi, i32 out_ptr)
+    // bst_ulong = uint64_t, passed as BigInt with WASM_BIGINT=1
     const cacheLen = cache.length
     const cachePtr = wasm._malloc(Math.max(cacheLen, 1) * 4)
     for (let i = 0; i < cacheLen; i++) {
@@ -60,7 +60,7 @@ export class Booster {
     }
 
     const outPtr = wasm._malloc(4)
-    const ret = wasm._XGBoosterCreate(cachePtr, cacheLen, 0, outPtr)
+    const ret = wasm._XGBoosterCreate(cachePtr, BigInt(cacheLen), outPtr)
 
     if (ret !== 0) {
       wasm._free(cachePtr)
@@ -197,7 +197,7 @@ export class Booster {
 
     // Create an empty booster
     const outPtr = wasm._malloc(4)
-    let ret = wasm._XGBoosterCreate(0, 0, 0, outPtr)
+    let ret = wasm._XGBoosterCreate(0, 0n, outPtr)
 
     if (ret !== 0) {
       wasm._free(outPtr)
@@ -212,7 +212,7 @@ export class Booster {
     const bufPtr = wasm._malloc(buf.length)
     wasm.HEAPU8.set(buf, bufPtr)
 
-    ret = wasm._XGBoosterLoadModelFromBuffer(handle, bufPtr, buf.length, 0)
+    ret = wasm._XGBoosterLoadModelFromBuffer(handle, bufPtr, BigInt(buf.length))
     wasm._free(bufPtr)
 
     if (ret !== 0) {
