@@ -72,21 +72,20 @@ LINK_LIBS="-Wl,--whole-archive $XGBOOST_LIB -Wl,--no-whole-archive"
 [ -n "$DMLC_LIB" ] && LINK_LIBS="$LINK_LIBS $DMLC_LIB"
 
 emcc $LINK_LIBS \
-  -o "${OUTPUT_DIR}/xgboost.js" \
+  -o "${OUTPUT_DIR}/xgboost.cjs" \
   -s MODULARIZE=1 \
-  -s EXPORT_ES6=1 \
   -s EXPORT_NAME=createXGBoost \
   -s EXPORTED_FUNCTIONS='["_XGBGetLastError","_XGDMatrixCreateFromMat","_XGDMatrixSetFloatInfo","_XGDMatrixNumRow","_XGDMatrixNumCol","_XGDMatrixFree","_XGBoosterCreate","_XGBoosterSetParam","_XGBoosterUpdateOneIter","_XGBoosterEvalOneIter","_XGBoosterPredictFromDMatrix","_XGBoosterSaveModelToBuffer","_XGBoosterLoadModelFromBuffer","_XGBoosterFree","_malloc","_free"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","getValue","setValue","HEAPF32","HEAPU8","UTF8ToString"]' \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s MAXIMUM_MEMORY=2147483648 \
   -s ENVIRONMENT='web,node' \
-  -s SINGLE_FILE=0 \
+  -s SINGLE_FILE=1 \
   -fexceptions \
   -O2
 
 echo "=== Verifying exports ==="
-bash "${SCRIPT_DIR}/verify-exports.sh" "${OUTPUT_DIR}/xgboost.js"
+bash "${SCRIPT_DIR}/verify-exports.sh" "${OUTPUT_DIR}/xgboost.cjs"
 
 echo "=== Writing BUILD_INFO ==="
 cat > "${OUTPUT_DIR}/BUILD_INFO" <<EOF
@@ -94,9 +93,10 @@ upstream: xgboost v3.2.0
 upstream_commit: $(cd "$UPSTREAM_DIR" && git rev-parse HEAD)
 build_date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 emscripten: $(emcc --version | head -1)
-build_flags: -O2 -DDMLC_LOG_STACK_TRACE=0
+build_flags: -O2 -DDMLC_LOG_STACK_TRACE=0 SINGLE_FILE=1
+wasm_embedded: true
 EOF
 
 echo "=== Build complete ==="
-ls -lh "${OUTPUT_DIR}/xgboost.js" "${OUTPUT_DIR}/xgboost.wasm"
+ls -lh "${OUTPUT_DIR}/xgboost.cjs"
 cat "${OUTPUT_DIR}/BUILD_INFO"
