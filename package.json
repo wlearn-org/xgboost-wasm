@@ -1,6 +1,6 @@
 {
   "name": "@wlearn/xgboost",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "XGBoost v3.2.0 compiled to WebAssembly -- gradient-boosted trees in browsers and Node.js",
   "type": "module",
   "main": "src/index.js",
@@ -23,11 +23,18 @@
     "build": "bash scripts/build-wasm.sh",
     "verify": "bash scripts/verify-exports.sh"
   },
-  "keywords": ["xgboost", "machine-learning", "gradient-boosting", "wasm", "webassembly", "wlearn"],
+  "keywords": [
+    "xgboost",
+    "machine-learning",
+    "gradient-boosting",
+    "wasm",
+    "webassembly",
+    "wlearn"
+  ],
   "author": "Anton Zemlyansky",
   "license": "Apache-2.0",
   "dependencies": {
-    "@wlearn/types": "^0.1.0",
-    "@wlearn/core": "^0.1.0"
+    "@wlearn/types": "0.1.0",
+    "@wlearn/core": "0.1.0"
   }
 }

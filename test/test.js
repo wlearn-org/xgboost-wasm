@@ -1115,6 +1115,98 @@ if (!hasFixtures) {
 }
 
 // ============================================================
+// Task Param Mapping
+// ============================================================
+console.log('\n=== Task Param Mapping ===')
+
+await test('task: classification (binary)', async () => {
+  const rng = makeLCG(99)
+  const n = 40, f = 2
+  const X = { data: new Float64Array(n * f), rows: n, cols: f }
+  const y = new Int32Array(n)
+  for (let i = 0; i < n; i++) {
+    X.data[i * f] = rng()
+    X.data[i * f + 1] = rng()
+    y[i] = X.data[i * f] > 0.5 ? 1 : 0
+  }
+  const model = await XGBModel.create({ task: 'classification', nRounds: 10 })
+  model.fit(X, y)
+  const preds = model.predict(X)
+  assert(preds.length === n, `expected ${n} predictions, got ${preds.length}`)
+  // Verify it's actually classifying (labels are 0 or 1)
+  for (let i = 0; i < preds.length; i++) {
+    assert(preds[i] === 0 || preds[i] === 1, `expected class label, got ${preds[i]}`)
+  }
+  model.dispose()
+})
+
+await test('task: classification (multiclass auto-promotes)', async () => {
+  const n = 30, f = 2
+  const X = { data: new Float64Array(n * f), rows: n, cols: f }
+  const y = new Int32Array(n)
+  for (let i = 0; i < n; i++) {
+    X.data[i * f] = i / n
+    X.data[i * f + 1] = (i * 3 % n) / n
+    y[i] = i % 3
+  }
+  const model = await XGBModel.create({ task: 'classification', nRounds: 10 })
+  model.fit(X, y)
+  const preds = model.predict(X)
+  assert(preds.length === n, `expected ${n} predictions`)
+  // Verify multiclass labels
+  const labels = new Set()
+  for (let i = 0; i < preds.length; i++) labels.add(preds[i])
+  assert(labels.size <= 3, `expected at most 3 classes, got ${labels.size}`)
+  model.dispose()
+})
+
+await test('task: regression', async () => {
+  const n = 40, f = 2
+  const X = { data: new Float64Array(n * f), rows: n, cols: f }
+  const y = new Float64Array(n)
+  for (let i = 0; i < n; i++) {
+    X.data[i * f] = i / n
+    X.data[i * f + 1] = (i * 7 % n) / n
+    y[i] = 2.5 * X.data[i * f] + 1.3 * X.data[i * f + 1]
+  }
+  const model = await XGBModel.create({ task: 'regression', nRounds: 20 })
+  model.fit(X, y)
+  const preds = model.predict(X)
+  assert(preds.length === n, `expected ${n} predictions`)
+  model.dispose()
+})
+
+await test('task + objective conflict throws', async () => {
+  let threw = false
+  const model = await XGBModel.create({ task: 'classification', objective: 'binary:logistic', nRounds: 5 })
+  try {
+    const X = { data: new Float64Array([0, 0, 1, 1]), rows: 2, cols: 2 }
+    const y = new Int32Array([0, 1])
+    model.fit(X, y)
+  } catch (e) {
+    threw = true
+    assert(e.message.includes('Cannot set both'), `unexpected error: ${e.message}`)
+  }
+  assert(threw, 'expected error for task + objective conflict')
+  model.dispose()
+})
+
+await test('task: unknown throws', async () => {
+  let threw = false
+  const model = await XGBModel.create({ task: 'clustering', nRounds: 5 })
+  try {
+    const X = { data: new Float64Array([0, 0, 1, 1]), rows: 2, cols: 2 }
+    const y = new Int32Array([0, 1])
+    model.fit(X, y)
+  } catch (e) {
+    threw = true
+    assert(e.message.includes('Unknown task'), `unexpected error: ${e.message}`)
+  }
+  assert(threw, 'expected error for unknown task')
+  model.dispose()
+})
+
+// ============================================================
 // Summary
 // ============================================================
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`)
