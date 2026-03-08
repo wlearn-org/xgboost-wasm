@@ -1,6 +1,8 @@
-import { loadXGB } from '../src/wasm.js'
-import { DMatrix } from '../src/dmatrix.js'
-import { Booster } from '../src/booster.js'
+const { loadXGB } = require('../src/wasm.js')
+const { DMatrix } = require('../src/dmatrix.js')
+const { Booster } = require('../src/booster.js')
+
+async function main() {
 
 const wasm = await loadXGB()
 
@@ -62,3 +64,7 @@ wasm._free(outResultPtr)
 b.dispose()
 dm.dispose()
 console.log('Done!')
+
+}
+
+main()

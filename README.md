@@ -2,7 +2,7 @@
 
 XGBoost v3.2.0 compiled to WebAssembly. Gradient-boosted trees, random forests, classification, regression, and ranking in browsers and Node.js.
 
-Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). Zero dependencies. ESM.
+Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). Zero dependencies. CommonJS.
 
 ## Install
 
@@ -13,7 +13,7 @@ npm install @wlearn/xgboost
 ## Quick start
 
 ```js
-import { XGBModel } from '@wlearn/xgboost'
+const { XGBModel } = require('@wlearn/xgboost')
 
 const model = await XGBModel.create({
   objective: 'binary:logistic',
@@ -132,7 +132,7 @@ const rf = await XGBModel.create({
 For direct access to XGBoost's C API, use the lower-level `DMatrix` and `Booster` classes:
 
 ```js
-import { loadXGB, DMatrix, Booster } from '@wlearn/xgboost'
+const { loadXGB, DMatrix, Booster } = require('@wlearn/xgboost')
 
 await loadXGB()
 

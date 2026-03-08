@@ -1,4 +1,4 @@
-import { getXGB } from './wasm.js'
+const { getXGB } = require('./wasm.js')
 
 // FinalizationRegistry safety net
 const registry = typeof FinalizationRegistry !== 'undefined'
@@ -29,7 +29,7 @@ function getLastError(wasm) {
 // Internal sentinel for loadModel path
 const LOAD_SENTINEL = Symbol('load')
 
-export class Booster {
+class Booster {
   #handle = null
   #freed = false
   #ptrRef = null
@@ -237,3 +237,5 @@ export class Booster {
     this.#handle = null
   }
 }
+
+module.exports = { Booster }

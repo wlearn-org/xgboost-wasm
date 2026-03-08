@@ -1,8 +1,5 @@
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const { join } = require('path')
+const { readFileSync, existsSync } = require('fs')
 
 let passed = 0
 let failed = 0
@@ -25,7 +22,7 @@ function assert(condition, msg) {
 
 function assertClose(a, b, tol, msg) {
   const diff = Math.abs(a - b)
-  if (diff > tol) throw new Error(msg || `expected ${a} ≈ ${b} (diff=${diff}, tol=${tol})`)
+  if (diff > tol) throw new Error(msg || `expected ${a} ~ ${b} (diff=${diff}, tol=${tol})`)
 }
 
 // Deterministic pseudo-random (LCG)
@@ -37,12 +34,14 @@ function makeLCG(seed = 42) {
   }
 }
 
+async function main() {
+
 // ============================================================
 // WASM loading
 // ============================================================
 console.log('\n=== WASM Loading ===')
 
-const { loadXGB } = await import('../src/wasm.js')
+const { loadXGB } = require('../src/wasm.js')
 const wasm = await loadXGB()
 
 await test('WASM module loads', async () => {
@@ -61,7 +60,7 @@ await test('XGBGetLastError returns string', async () => {
 // ============================================================
 console.log('\n=== DMatrix ===')
 
-const { DMatrix } = await import('../src/dmatrix.js')
+const { DMatrix } = require('../src/dmatrix.js')
 
 await test('DMatrix from 2D array', async () => {
   const dm = new DMatrix([[1, 2], [3, 4], [5, 6]])
@@ -103,7 +102,7 @@ await test('DMatrix throws after dispose', async () => {
 // ============================================================
 console.log('\n=== Booster ===')
 
-const { Booster } = await import('../src/booster.js')
+const { Booster } = require('../src/booster.js')
 
 await test('Booster create with params', async () => {
   const dtrain = new DMatrix([[1, 2], [3, 4], [5, 6], [7, 8]])
@@ -411,7 +410,7 @@ await test('Survival regression (survival:cox)', async () => {
 // ============================================================
 console.log('\n=== XGBModel ===')
 
-const { XGBModel } = await import('../src/model.js')
+const { XGBModel } = require('../src/model.js')
 
 await test('XGBModel.create and fit (regression)', async () => {
   const model = await XGBModel.create({
@@ -630,7 +629,7 @@ await test('XGBModel predictProba throws for multi:softmax', async () => {
 // ============================================================
 console.log('\n=== Convenience API ===')
 
-const { train, predict: predictConv } = await import('../src/index.js')
+const { train, predict: predictConv } = require('../src/index.js')
 
 await test('train() convenience function', async () => {
   const model = await train({
@@ -671,7 +670,7 @@ await test('predict() convenience function', async () => {
 // ============================================================
 console.log('\n=== Save / Load ===')
 
-const { decodeBundle, load: coreLoad } = await import('@wlearn/core')
+const { decodeBundle, load: coreLoad } = require('@wlearn/core')
 
 await test('save produces WLRN bundle', async () => {
   const model = await XGBModel.create({
@@ -852,7 +851,7 @@ await test('dispose is idempotent', async () => {
 })
 
 await test('throws DisposedError after dispose', async () => {
-  const { DisposedError } = await import('@wlearn/core')
+  const { DisposedError } = require('@wlearn/core')
   const model = await XGBModel.create({
     objective: 'reg:squarederror',
     numRound: 5,
@@ -872,7 +871,7 @@ await test('throws DisposedError after dispose', async () => {
 })
 
 await test('throws NotFittedError before fit', async () => {
-  const { NotFittedError } = await import('@wlearn/core')
+  const { NotFittedError } = require('@wlearn/core')
   const model = await XGBModel.create({
     objective: 'reg:squarederror',
     numRound: 5
@@ -1012,8 +1011,6 @@ await test('class ordering is stable and restored on load', async () => {
 // Cross-runtime parity (Python fixtures)
 // ============================================================
 console.log('\n=== Cross-Runtime Parity ===')
-
-import { readFileSync, existsSync } from 'fs'
 
 const fixturesDir = join(__dirname, 'fixtures')
 const hasFixtures = existsSync(join(fixturesDir, 'regression.data.json'))
@@ -1211,3 +1208,7 @@ await test('task: unknown throws', async () => {
 // ============================================================
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`)
 process.exit(failed > 0 ? 1 : 0)
+
+}
+
+main()

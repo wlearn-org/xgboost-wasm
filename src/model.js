@@ -1,12 +1,12 @@
-import { loadXGB, getXGB } from './wasm.js'
-import { DMatrix } from './dmatrix.js'
-import { Booster } from './booster.js'
-import {
+const { loadXGB, getXGB } = require('./wasm.js')
+const { DMatrix } = require('./dmatrix.js')
+const { Booster } = require('./booster.js')
+const {
   normalizeY,
   encodeBundle, decodeBundle,
   register,
   DisposedError, NotFittedError
-} from '@wlearn/core'
+} = require('@wlearn/core')
 
 // FinalizationRegistry safety net -- warns if dispose() was never called
 const leakRegistry = typeof FinalizationRegistry !== 'undefined'
@@ -37,7 +37,7 @@ const LOAD_SENTINEL = Symbol('load')
 
 // --- XGBModel ---
 
-export class XGBModel {
+class XGBModel {
   #booster = null
   #freed = false
   #boosterRef = null
@@ -444,3 +444,5 @@ export class XGBModel {
 
 register('wlearn.xgboost.classifier@1', async (m, t, b) => XGBModel._fromBundle(m, t, b))
 register('wlearn.xgboost.regressor@1', async (m, t, b) => XGBModel._fromBundle(m, t, b))
+
+module.exports = { XGBModel }
