@@ -72,7 +72,7 @@ LINK_LIBS="-Wl,--whole-archive $XGBOOST_LIB -Wl,--no-whole-archive"
 [ -n "$DMLC_LIB" ] && LINK_LIBS="$LINK_LIBS $DMLC_LIB"
 
 emcc $LINK_LIBS \
-  -o "${OUTPUT_DIR}/xgboost.cjs" \
+  -o "${OUTPUT_DIR}/xgboost.js" \
   -s MODULARIZE=1 \
   -s EXPORT_NAME=createXGBoost \
   -s EXPORTED_FUNCTIONS='["_XGBGetLastError","_XGDMatrixCreateFromMat","_XGDMatrixSetFloatInfo","_XGDMatrixNumRow","_XGDMatrixNumCol","_XGDMatrixFree","_XGBoosterCreate","_XGBoosterSetParam","_XGBoosterUpdateOneIter","_XGBoosterEvalOneIter","_XGBoosterPredictFromDMatrix","_XGBoosterSaveModelToBuffer","_XGBoosterLoadModelFromBuffer","_XGBoosterFree","_malloc","_free"]' \
@@ -85,7 +85,7 @@ emcc $LINK_LIBS \
   -O2
 
 echo "=== Verifying exports ==="
-bash "${SCRIPT_DIR}/verify-exports.sh" "${OUTPUT_DIR}/xgboost.cjs"
+bash "${SCRIPT_DIR}/verify-exports.sh" "${OUTPUT_DIR}/xgboost.js"
 
 echo "=== Writing BUILD_INFO ==="
 cat > "${OUTPUT_DIR}/BUILD_INFO" <<EOF
@@ -98,5 +98,5 @@ wasm_embedded: true
 EOF
 
 echo "=== Build complete ==="
-ls -lh "${OUTPUT_DIR}/xgboost.cjs"
+ls -lh "${OUTPUT_DIR}/xgboost.js"
 cat "${OUTPUT_DIR}/BUILD_INFO"

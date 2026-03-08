@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Verify all required C API symbols are present in the Emscripten glue
-GLUE="${1:-wasm/xgboost.cjs}"
+GLUE="${1:-wasm/xgboost.js}"
 
 if [ ! -f "$GLUE" ]; then
   echo "ERROR: Glue file not found: $GLUE"

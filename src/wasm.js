@@ -8,7 +8,7 @@ async function loadXGB(options = {}) {
   if (loading) return loading
 
   loading = (async () => {
-    const createXGBoost = require('../wasm/xgboost.cjs')
+    const createXGBoost = require('../wasm/xgboost.js')
     wasmModule = await createXGBoost(options)
     return wasmModule
   })()
