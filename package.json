@@ -36,6 +36,10 @@
     "wlearn"
   ],
   "author": "Anton Zemlyansky",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wlearn-org/xgboost-wasm.git"
+  },
   "license": "Apache-2.0",
   "dependencies": {
     "@wlearn/types": "0.1.0",
