@@ -2,7 +2,7 @@
 
 XGBoost v3.2.0 compiled to WebAssembly. Gradient-boosted trees, random forests, classification, regression, and ranking in browsers and Node.js.
 
-Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). Zero dependencies. CommonJS.
+Part of [wlearn](https://wlearn.org) ([GitHub](https://github.com/wlearn-org), [all packages](https://github.com/wlearn-org/wlearn#repository-structure)). Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). Zero dependencies. CommonJS.
 
 ## Install
 
