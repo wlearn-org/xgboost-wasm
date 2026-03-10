@@ -1173,18 +1173,12 @@ await test('task: regression', async () => {
   model.dispose()
 })
 
-await test('task + objective conflict throws', async () => {
-  let threw = false
+await test('task + objective coexist (objective wins)', async () => {
   const model = await XGBModel.create({ task: 'classification', objective: 'binary:logistic', nRounds: 5 })
-  try {
-    const X = { data: new Float64Array([0, 0, 1, 1]), rows: 2, cols: 2 }
-    const y = new Int32Array([0, 1])
-    model.fit(X, y)
-  } catch (e) {
-    threw = true
-    assert(e.message.includes('Cannot set both'), `unexpected error: ${e.message}`)
-  }
-  assert(threw, 'expected error for task + objective conflict')
+  const X = { data: new Float64Array([0, 0, 1, 1]), rows: 2, cols: 2 }
+  const y = new Int32Array([0, 1])
+  model.fit(X, y)
+  assert(model.isFitted, 'should be fitted')
   model.dispose()
 })
 
