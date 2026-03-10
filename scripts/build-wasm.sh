@@ -81,6 +81,7 @@ emcc $LINK_LIBS \
   -s MAXIMUM_MEMORY=2147483648 \
   -s ENVIRONMENT='web,node' \
   -s SINGLE_FILE=1 \
+  -s SINGLE_FILE_BINARY_ENCODE=0 \
   -fexceptions \
   -O2
 
