@@ -53,6 +53,7 @@ model2.dispose()
 Async factory. Loads WASM module, returns a ready-to-use model.
 
 Parameters:
+- `task` -- `'classification'` or `'regression'`. Auto-detected from labels if omitted. Sets a default objective when no explicit `objective` is provided. If both `task` and `objective` are set, `objective` takes precedence.
 - `objective` -- XGBoost objective string (default: `'reg:squarederror'`)
 - `max_depth` -- maximum tree depth (default: `6`)
 - `eta` -- learning rate (default: `0.3`)

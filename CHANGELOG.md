@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+- Wrap XGBModel with `createModelClass` from `@wlearn/core` for unified task detection
+- Add `task` parameter: `'classification'` or `'regression'`, auto-detected from labels if omitted
+- When both `task` and `objective` are set, `objective` takes precedence
+
 ## 0.1.0 (unreleased)
 
 - Initial release
