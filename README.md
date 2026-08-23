@@ -1,8 +1,8 @@
 # @wlearn/xgboost
 
-XGBoost v3.2.0 compiled to WebAssembly. Gradient-boosted trees, random forests, classification, regression, and ranking in browsers and Node.js.
+XGBoost v3.2.0 compiled to WebAssembly. Gradient-boosted trees, random forests, classification, and regression in browsers and Node.js.
 
-Part of [wlearn](https://wlearn.org) ([GitHub](https://github.com/wlearn-org), [all packages](https://github.com/wlearn-org/wlearn#repository-structure)). Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). Zero dependencies. CommonJS.
+Part of [wlearn](https://wlearn.org) ([GitHub](https://github.com/wlearn-org), [all packages](https://github.com/wlearn-org/wlearn#repository-structure)). Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). CommonJS.
 
 ## Install
 
@@ -13,6 +13,7 @@ npm install @wlearn/xgboost
 ## Quick start
 
 ```js
+const { readFileSync, writeFileSync } = require('fs')
 const { XGBModel } = require('@wlearn/xgboost')
 
 const model = await XGBModel.create({
@@ -29,7 +30,7 @@ model.fit(
 )
 
 // Predict
-const preds = model.predict([[2, 3], [6, 7]])  // Float64Array
+const preds = model.predict([[2, 3], [6, 7]])  // Int32Array class labels
 
 // Probabilities
 const probs = model.predictProba([[2, 3], [6, 7]])  // Float64Array (nrow * nclass)
@@ -38,12 +39,8 @@ const probs = model.predictProba([[2, 3], [6, 7]])  // Float64Array (nrow * ncla
 const accuracy = model.score([[2, 3], [6, 7]], [0, 1])
 
 // Save / load
-const buf = model.save()  // Uint8Array (WLRN bundle)
-const model2 = await XGBModel.load(buf)
-
-// Clean up -- required, WASM memory is not garbage collected
-model.dispose()
-model2.dispose()
+writeFileSync('xgboost.wlrn', model.save())
+const model2 = await XGBModel.load(readFileSync('xgboost.wlrn'))
 ```
 
 ## API
@@ -58,7 +55,8 @@ Parameters:
 - `max_depth` -- maximum tree depth (default: `6`)
 - `eta` -- learning rate (default: `0.3`)
 - `numRound` -- number of boosting rounds (default: `100`)
-- `num_class` -- number of classes for multiclass objectives
+- `num_class` -- number of classes for multiclass objectives; inferred from the
+  fitted labels when omitted and required to match them when supplied
 - `subsample` -- row subsampling ratio (default: `1.0`)
 - `colsample_bytree` -- column subsampling ratio (default: `1.0`)
 - `lambda` -- L2 regularization (default: `1.0`)
@@ -67,20 +65,24 @@ Parameters:
 - `verbosity` -- 0 = silent, 1 = warning, 2 = info (default: `0`)
 - `coerce` -- input coercion: `'auto'` | `'warn'` | `'error'` (default: `'auto'`)
 
-### `model.fit(X, y, opts?)`
+### `model.fit(X, y)`
 
 Train on data. Returns `this`.
 - `X` -- `number[][]` or `{ data: Float64Array, rows, cols }`
-- `y` -- `number[]` or `Float64Array`
-- `opts.sampleWeight` -- per-sample weights (`number[]` or `Float64Array`)
+- `y` -- `number[]` or `Float64Array`. Classification labels must be int32
+  values; they need not be contiguous. The wrapper maps the sorted public labels
+  to XGBoost's internal `0..K-1` indices and maps predictions back.
 
 ### `model.predict(X)`
 
-Returns `Float64Array` of predicted labels (classification) or values (regression).
+Returns classifier labels as `Int32Array` and regression values as
+`Float64Array`.
 
 ### `model.predictProba(X)`
 
-Returns `Float64Array` of shape `nrow * nclass` (row-major probabilities). Available for `binary:logistic` and `multi:softprob` objectives.
+Returns `Float64Array` of shape `nrow * nclass` (row-major probabilities).
+Columns follow the sorted order in `model.classes`. Available for
+`binary:logistic` and `multi:softprob` objectives.
 
 ### `model.score(X, y)`
 
@@ -92,7 +94,7 @@ Save to / load from `Uint8Array` (WLRN bundle with UBJ model blob).
 
 ### `model.dispose()`
 
-Free WASM memory. Required. Idempotent.
+Release WASM memory immediately. Use in long-running apps, workers, cross-validation, and AutoML loops. Idempotent.
 
 ### `model.getParams()` / `model.setParams(p)`
 
@@ -102,17 +104,20 @@ Get/set hyperparameters. Enables AutoML grid search and cloning.
 
 Returns default hyperparameter search space for AutoML.
 
-## Supported objectives
+## Objective coverage
 
-Tested and verified:
+The high-level `XGBModel` test suite exercises:
 - `reg:squarederror` -- regression
 - `binary:logistic` -- binary classification (probabilities)
 - `multi:softprob` -- multiclass classification (probabilities)
 - `multi:softmax` -- multiclass classification (class labels)
-- `count:poisson` -- Poisson regression (counts)
-- `survival:cox` -- Cox proportional hazards
 
-All XGBoost objectives should work -- these are tested in CI.
+The low-level `Booster` smoke suite also exercises `count:poisson` and
+`survival:cox`. The unified estimator intentionally rejects ranking and
+survival objectives because it does not yet define ranking groups or survival
+metrics; use `Booster` directly for those tasks. Other upstream objectives are
+not claimed as high-level `XGBModel` contracts until their prediction and score
+semantics are tested.
 
 ## Random forest mode
 
@@ -165,7 +170,7 @@ dtrain.dispose()
 - `options.label` -- set labels at construction time
 - `.setLabel(labels)` -- set target labels
 - `.setWeight(weights)` -- set sample weights
-- `.dispose()` -- free WASM memory
+- `.dispose()` -- release WASM memory
 
 ### `Booster(params, cache?)`
 
@@ -173,15 +178,23 @@ dtrain.dispose()
 - `.update(dtrain, iteration)` -- run one training round
 - `.predict(dtest, options?)` -- predict, returns `Float32Array`
 - `.saveModel(format?)` -- `'ubj'` (default) or `'json'`, returns `Uint8Array`
-- `.dispose()` -- free WASM memory
+- `.dispose()` -- release WASM memory
 
 ### `Booster.loadModel(buffer)`
 
 Load from `Uint8Array`. Returns a `Booster`.
 
+## Classifier migration from 0.2
+
+Version 0.3 returns classifier labels as `Int32Array` and preserves arbitrary
+finite int32 public labels through an internal ordinal encoding. Version 0.2
+returned common classifier labels in a floating-point typed array and did not
+reliably support noncontiguous public labels. Regression predictions remain
+floating point.
+
 ## Resource management
 
-WASM heap memory is not garbage collected. Call `.dispose()` on every `DMatrix`, `Booster`, and `XGBModel` when done. A `FinalizationRegistry` safety net warns if you forget, but do not rely on it.
+Use `.dispose()` when creating and discarding many `DMatrix`, `Booster`, or `XGBModel` objects so WASM memory is released promptly.
 
 ## Cross-runtime compatibility
 

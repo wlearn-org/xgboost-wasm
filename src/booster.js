@@ -72,18 +72,23 @@ class Booster {
     wasm._free(cachePtr)
     wasm._free(outPtr)
 
-    // Register for leak detection
-    this.#ptrRef = [this.#handle]
-    if (registry) {
-      registry.register(this, {
-        ptr: this.#ptrRef,
-        freeFn: (h) => getXGB()._XGBoosterFree(h)
-      }, this)
-    }
+    try {
+      // Register for leak detection
+      this.#ptrRef = [this.#handle]
+      if (registry) {
+        registry.register(this, {
+          ptr: this.#ptrRef,
+          freeFn: (h) => getXGB()._XGBoosterFree(h)
+        }, this)
+      }
 
-    // Set params
-    for (const [key, value] of Object.entries(params)) {
-      this.setParam(key, String(value))
+      // Set params
+      for (const [key, value] of Object.entries(params)) {
+        this.setParam(key, String(value))
+      }
+    } catch (error) {
+      this.dispose()
+      throw error
     }
   }
 
@@ -190,6 +195,29 @@ class Booster {
     wasm._free(outDptrPtr)
 
     return result
+  }
+
+  modelIdentity() {
+    let parsed
+    try {
+      const json = new TextDecoder('utf-8', { fatal: true }).decode(this.saveModel('json'))
+      parsed = JSON.parse(json)
+    } catch (error) {
+      throw new Error(`Invalid XGBoost model identity: ${error.message}`)
+    }
+    const learner = parsed?.learner
+    const modelParam = learner?.learner_model_param
+    const objective = learner?.objective?.name
+    const numFeature = Number(modelParam?.num_feature)
+    const numClass = Number(modelParam?.num_class)
+    const numTarget = Number(modelParam?.num_target)
+    if (typeof objective !== 'string' || objective.length === 0 ||
+        !Number.isSafeInteger(numFeature) || numFeature < 1 ||
+        !Number.isSafeInteger(numClass) || numClass < 0 ||
+        !Number.isSafeInteger(numTarget) || numTarget < 1) {
+      throw new Error('Invalid XGBoost model identity fields')
+    }
+    return { objective, numFeature, numClass, numTarget }
   }
 
   static loadModel(buffer) {

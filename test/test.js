@@ -25,6 +25,29 @@ function assertClose(a, b, tol, msg) {
   if (diff > tol) throw new Error(msg || `expected ${a} ~ ${b} (diff=${diff}, tol=${tol})`)
 }
 
+function assertArrayEqual(actual, expected, msg) {
+  assert(actual.length === expected.length, msg || 'array lengths differ')
+  for (let i = 0; i < actual.length; i++) {
+    assert(actual[i] === expected[i], msg || `array values differ at ${i}`)
+  }
+}
+
+function assertThrows(fn, pattern, msg) {
+  let error = null
+  try { fn() } catch (caught) { error = caught }
+  assert(error, msg || 'expected function to throw')
+  assert(pattern.test(error.message), msg || `unexpected error: ${error.message}`)
+}
+
+async function assertRejects(fn, pattern, msg) {
+  let error = null
+  try { await fn() } catch (caught) { error = caught }
+  assert(error, msg || 'expected promise to reject')
+  if (pattern) {
+    assert(pattern.test(error.message), msg || `unexpected error: ${error.message}`)
+  }
+}
+
 // Deterministic pseudo-random (LCG)
 function makeLCG(seed = 42) {
   let s = seed
@@ -77,10 +100,43 @@ await test('DMatrix from Float32Array', async () => {
   dm.dispose()
 })
 
+await test('DMatrix rejects shape mismatches and ragged rows before native calls', async () => {
+  assertThrows(
+    () => new DMatrix(new Float32Array(3), { nrow: 2, ncol: 2 }),
+    /data.length/
+  )
+  assertThrows(
+    () => new DMatrix(new Float32Array(5), { nrow: 2, ncol: 2 }),
+    /data.length/
+  )
+  assertThrows(() => new DMatrix([[1, 2], [3]]), /rectangular/)
+})
+
 await test('DMatrix setLabel', async () => {
   const dm = new DMatrix([[1, 2], [3, 4]])
   dm.setLabel([0, 1])
   dm.dispose()
+})
+
+await test('DMatrix constructor frees its native handle when label setup fails', async () => {
+  const originalSetFloatInfo = wasm._XGDMatrixSetFloatInfo
+  const originalFree = wasm._XGDMatrixFree
+  let freeCalls = 0
+  wasm._XGDMatrixSetFloatInfo = () => 1
+  wasm._XGDMatrixFree = (handle) => {
+    freeCalls++
+    return originalFree(handle)
+  }
+  try {
+    assertThrows(
+      () => new DMatrix([[1, 2], [3, 4]], { label: [0, 1] }),
+      /XGDMatrixSetFloatInfo\(label\) failed/
+    )
+    assert(freeCalls === 1, `expected one synchronous DMatrix free, got ${freeCalls}`)
+  } finally {
+    wasm._XGDMatrixSetFloatInfo = originalSetFloatInfo
+    wasm._XGDMatrixFree = originalFree
+  }
 })
 
 await test('DMatrix double dispose is safe', async () => {
@@ -116,6 +172,27 @@ await test('Booster create with params', async () => {
   assert(booster.handle, 'booster handle is null')
   booster.dispose()
   dtrain.dispose()
+})
+
+await test('Booster constructor frees its native handle when parameter setup fails', async () => {
+  const originalSetParam = wasm._XGBoosterSetParam
+  const originalFree = wasm._XGBoosterFree
+  let freeCalls = 0
+  wasm._XGBoosterSetParam = () => 1
+  wasm._XGBoosterFree = (handle) => {
+    freeCalls++
+    return originalFree(handle)
+  }
+  try {
+    assertThrows(
+      () => new Booster({ verbosity: 0 }),
+      /XGBoosterSetParam\(verbosity\) failed/
+    )
+    assert(freeCalls === 1, `expected one synchronous Booster free, got ${freeCalls}`)
+  } finally {
+    wasm._XGBoosterSetParam = originalSetParam
+    wasm._XGBoosterFree = originalFree
+  }
 })
 
 await test('Booster train and predict', async () => {
@@ -405,12 +482,54 @@ await test('Survival regression (survival:cox)', async () => {
   dtrain.dispose()
 })
 
-// ============================================================
-// XGBModel (high-level Estimator interface)
-// ============================================================
 console.log('\n=== XGBModel ===')
 
 const { XGBModel } = require('../src/model.js')
+
+await test('XGBModel rejects objectives without a unified task contract', async () => {
+  for (const objective of ['rank:pairwise', 'survival:cox']) {
+    const model = await XGBModel.create({ objective, numRound: 1 })
+    let error = null
+    try {
+      model.fit([[0], [1]], [0, 1])
+    } catch (caught) {
+      error = caught
+    }
+    assert(error && /low-level Booster/.test(error.message),
+      `${objective} should direct callers to the low-level Booster API`)
+    assert(!model.isFitted, `${objective} rejection must leave model unfitted`)
+    model.dispose()
+  }
+})
+
+await test('XGBModel enforces coerce error and warn modes', async () => {
+  const strict = await XGBModel.create({
+    objective: 'reg:squarederror', numRound: 1, coerce: 'error'
+  })
+  let rejected = false
+  try { strict.fit([[0], [1]], [0, 1]) } catch (error) {
+    rejected = /coercion disabled/.test(error.message)
+  }
+  assert(rejected, 'coerce:error accepted number[][]')
+  strict.fit({ data: new Float32Array([0, 1]), rows: 2, cols: 1 }, [0, 1])
+  strict.dispose()
+
+  const warning = await XGBModel.create({
+    objective: 'reg:squarederror', numRound: 1, coerce: 'warn'
+  })
+  const originalWarn = console.warn
+  const messages = []
+  console.warn = message => messages.push(String(message))
+  try {
+    warning.fit([[0], [1]], [0, 1])
+    warning.predict([[0], [1]])
+  } finally {
+    console.warn = originalWarn
+    warning.dispose()
+  }
+  assert(messages.length === 1 && /Converted number\[\]\[\]/.test(messages[0]),
+    `expected one conversion warning, got ${messages}`)
+})
 
 await test('XGBModel.create and fit (regression)', async () => {
   const model = await XGBModel.create({
@@ -429,7 +548,7 @@ await test('XGBModel.create and fit (regression)', async () => {
   assert(model.nrClass === 0, 'regression should have nrClass 0')
 
   const preds = model.predict(X)
-  assert(preds instanceof Float64Array, 'predictions should be Float64Array')
+  assert(preds instanceof Float64Array, 'regression predictions should be Float64Array')
   assert(preds.length === 4, `expected 4 predictions, got ${preds.length}`)
 
   model.dispose()
@@ -461,7 +580,7 @@ await test('XGBModel binary classifier predict returns class labels', async () =
   assert(classes[0] === 0 && classes[1] === 1, `expected classes [0, 1], got [${classes}]`)
 
   const preds = model.predict(X)
-  assert(preds instanceof Float64Array, 'predictions should be Float64Array')
+  assert(preds instanceof Int32Array, 'classifier predictions should be Int32Array')
   assert(preds.length === 200, `expected 200 predictions, got ${preds.length}`)
 
   // All predictions should be class labels (0 or 1)
@@ -537,6 +656,7 @@ await test('XGBModel multiclass predict and predictProba', async () => {
 
   // predict returns class labels
   const preds = model.predict(X)
+  assert(preds instanceof Int32Array, 'multiclass predictions should be Int32Array')
   assert(preds.length === 150, `expected 150 predictions, got ${preds.length}`)
   for (let i = 0; i < preds.length; i++) {
     assert(preds[i] === 0 || preds[i] === 1 || preds[i] === 2,
@@ -551,6 +671,78 @@ await test('XGBModel multiclass predict and predictProba', async () => {
     assertClose(sum, 1.0, 1e-4, `row ${r} probs sum to ${sum}`)
   }
 
+  model.dispose()
+})
+
+await test('XGBModel remaps noncontiguous classifier labels to ordinal training labels', async () => {
+  const model = await XGBModel.create({
+    task: 'classification',
+    max_depth: 2,
+    eta: 0.3,
+    numRound: 12,
+    seed: 42
+  })
+  const X = []
+  const y = []
+  const labels = [10, 20, 40]
+  for (let labelIndex = 0; labelIndex < labels.length; labelIndex++) {
+    for (let row = 0; row < 12; row++) {
+      X.push([labelIndex * 3 + row / 100, labelIndex * 2 - row / 200])
+      y.push(labels[labelIndex])
+    }
+  }
+  model.fit(X, y)
+  assertArrayEqual(model.classes, labels)
+  const predictions = model.predict(X)
+  assert(Array.from(predictions).every(value => labels.includes(value)))
+  const probabilities = model.predictProba(X)
+  assert(
+    probabilities.length === X.length * labels.length,
+    `expected ${X.length * labels.length} probabilities, got ${probabilities.length}`
+  )
+
+  const restored = await XGBModel.load(model.save())
+  assertArrayEqual(restored.classes, labels)
+  assertArrayEqual(restored.predict(X), predictions)
+  assertArrayEqual(restored.predictProba(X), probabilities)
+  restored.dispose()
+  model.dispose()
+})
+
+await test('XGBModel validates classifier label and num_class contracts', async () => {
+  const invalidLabel = await XGBModel.create({ task: 'classification', numRound: 1 })
+  assertThrows(
+    () => invalidLabel.fit([[0], [1]], [0, 2147483648]),
+    /int32/
+  )
+  invalidLabel.dispose()
+
+  const wrongClassCount = await XGBModel.create({
+    objective: 'multi:softprob', num_class: 4, numRound: 1
+  })
+  assertThrows(
+    () => wrongClassCount.fit([[0], [1], [2]], [10, 20, 40]),
+    /does not match fitted classes/
+  )
+  wrongClassCount.dispose()
+})
+
+await test('XGBModel invalid refit preserves the fitted booster', async () => {
+  const model = await XGBModel.create({
+    objective: 'binary:logistic', numRound: 8, seed: 42
+  })
+  const X = [[0], [0.1], [0.9], [1]]
+  model.fit(X, [3, 3, 7, 7])
+  const before = model.predict(X)
+  assertThrows(() => model.fit(X, [3]), /y length/)
+  assert(model.isFitted, 'invalid refit should preserve fitted state')
+  assertArrayEqual(model.predict(X), before)
+  assertThrows(
+    () => model.fit({ data: new Float32Array(3), rows: 2, cols: 2 }, [3, 7]),
+    /data.length/
+  )
+  assertThrows(() => model.fit([[0], [1, 2]], [3, 7]), /rectangular/)
+  assertArrayEqual(model.predict(X), before)
   model.dispose()
 })
 
@@ -575,6 +767,7 @@ await test('XGBModel score (accuracy for classifier, R2 for regressor)', async (
   const acc = clf.score(X, y)
   assert(typeof acc === 'number', 'score should be a number')
   assert(acc > 0.7, `accuracy ${acc} too low`)
+  assertThrows(() => clf.score(X, y.slice(1)), /y length/)
   clf.dispose()
 
   // Regressor
@@ -670,7 +863,7 @@ await test('predict() convenience function', async () => {
 // ============================================================
 console.log('\n=== Save / Load ===')
 
-const { decodeBundle, load: coreLoad } = require('@wlearn/core')
+const { decodeBundle, encodeBundle, load: coreLoad } = require('@wlearn/core')
 
 await test('save produces WLRN bundle', async () => {
   const model = await XGBModel.create({
@@ -787,6 +980,60 @@ await test('save and load regressor round-trip', async () => {
 
   model.dispose()
   restored.dispose()
+})
+
+await test('direct load validates hashes, type, objective, and class metadata', async () => {
+  const model = await XGBModel.create({
+    objective: 'binary:logistic', numRound: 5, seed: 42
+  })
+  model.fit([[0], [0.1], [0.9], [1]], [3, 3, 7, 7])
+  const bundle = model.save()
+  const corrupted = new Uint8Array(bundle)
+  corrupted[corrupted.length - 1] ^= 1
+  await assertRejects(() => XGBModel.load(corrupted))
+
+  const { manifest, toc, blobs } = decodeBundle(bundle)
+  const artifacts = toc.map(entry => ({
+    id: entry.id,
+    data: blobs.slice(entry.offset, entry.offset + entry.length)
+  }))
+  const wrongType = encodeBundle({
+    ...manifest,
+    typeId: 'wlearn.xgboost.regressor@1'
+  }, artifacts)
+  await assertRejects(() => XGBModel.load(wrongType), /regressor metadata/)
+
+  const wrongObjective = encodeBundle({
+    ...manifest,
+    metadata: { ...manifest.metadata, objective: 'multi:softprob' }
+  }, artifacts)
+  await assertRejects(() => XGBModel.load(wrongObjective), /objective metadata/)
+
+  const badClasses = encodeBundle({
+    ...manifest,
+    metadata: { ...manifest.metadata, classes: [7, 3] }
+  }, artifacts)
+  await assertRejects(() => XGBModel.load(badClasses), /classifier metadata/)
+
+  const wrongFeatures = encodeBundle({
+    ...manifest,
+    metadata: { ...manifest.metadata, nFeatures: manifest.metadata.nFeatures + 1 }
+  }, artifacts)
+  await assertRejects(() => XGBModel.load(wrongFeatures), /feature count/)
+
+  const regressor = await XGBModel.create({
+    objective: 'reg:squarederror', numRound: 2, seed: 42
+  })
+  regressor.fit([[0], [1]], [0.25, 0.75])
+  const regBundle = decodeBundle(regressor.save())
+  const regEntry = regBundle.toc[0]
+  const swappedBlob = encodeBundle(manifest, [{
+    id: 'model',
+    data: regBundle.blobs.slice(regEntry.offset, regEntry.offset + regEntry.length)
+  }])
+  await assertRejects(() => XGBModel.load(swappedBlob), /model objective/)
+  regressor.dispose()
+  model.dispose()
 })
 
 // ============================================================
@@ -1116,6 +1363,63 @@ if (!hasFixtures) {
 // ============================================================
 console.log('\n=== Task Param Mapping ===')
 
+const { XGBModel: UnifiedXGBModel } = require('../src/index.js')
+
+await test('unified model infers classification before fitting the prepared inner model', async () => {
+  const X = { data: new Float64Array([0, 0, 0, 1, 1, 0, 1, 1]), rows: 4, cols: 2 }
+  const y = new Int32Array([0, 0, 1, 1])
+  const model = await UnifiedXGBModel.create({ numRound: 3, max_depth: 2 })
+  model.fit(X, y)
+
+  const manifest = decodeBundle(model.save()).manifest
+  assert(model.task === 'classification', `expected classification, got ${model.task}`)
+  assert(manifest.typeId === 'wlearn.xgboost.classifier@1', `unexpected typeId: ${manifest.typeId}`)
+  assert(manifest.params.task === 'classification', 'inferred task missing from inner manifest')
+  assert(manifest.params.objective === 'binary:logistic', `unexpected objective: ${manifest.params.objective}`)
+  assert(model.predictProba(X).length === 8, 'expected binary probability matrix')
+  model.dispose()
+})
+
+await test('unified model honors explicit regression for integer-valued targets', async () => {
+  const X = { data: new Float64Array([0, 0, 0, 1, 1, 0, 1, 1]), rows: 4, cols: 2 }
+  const y = new Float64Array([0, 1, 2, 3])
+  const model = await UnifiedXGBModel.create({ task: 'regression', numRound: 3, max_depth: 2 })
+  model.fit(X, y)
+
+  const manifest = decodeBundle(model.save()).manifest
+  assert(manifest.typeId === 'wlearn.xgboost.regressor@1', `unexpected typeId: ${manifest.typeId}`)
+  assert(manifest.params.objective === 'reg:squarederror', `unexpected objective: ${manifest.params.objective}`)
+  model.dispose()
+})
+
+await test('unified model preserves predictions and bundle after invalid refit', async () => {
+  const X = { data: new Float64Array([0, 0.1, 0.9, 1]), rows: 4, cols: 1 }
+  const model = await UnifiedXGBModel.create({
+    task: 'classification', numRound: 4, seed: 42
+  })
+  model.fit(X, new Int32Array([3, 3, 7, 7]))
+  const beforePredictions = model.predict(X)
+  const beforeBundle = model.save()
+  assertThrows(() => model.fit(X, new Int32Array([3])), /y length/)
+  assert(model.isFitted, 'wrapper should remain fitted after rejected refit')
+  assertArrayEqual(model.predict(X), beforePredictions)
+  assertArrayEqual(model.save(), beforeBundle)
+  model.dispose()
+})
+
+await test('unified model rejects invalid boosting round counts', async () => {
+  const X = { data: new Float64Array([0, 1, 2, 3]), rows: 4, cols: 1 }
+  const y = new Int32Array([0, 0, 1, 1])
+  for (const numRound of [0, -1, 1.5, true, Number.MAX_SAFE_INTEGER + 1]) {
+    const model = await UnifiedXGBModel.create({
+      task: 'classification', numRound
+    })
+    assertThrows(() => model.fit(X, y), /numRound must be a positive safe integer/)
+    assert(!model.isFitted, `invalid numRound ${numRound} fitted the model`)
+    model.dispose()
+  }
+})
+
 await test('task: classification (binary)', async () => {
   const rng = makeLCG(99)
   const n = 40, f = 2
@@ -1126,7 +1430,7 @@ await test('task: classification (binary)', async () => {
     X.data[i * f + 1] = rng()
     y[i] = X.data[i * f] > 0.5 ? 1 : 0
   }
-  const model = await XGBModel.create({ task: 'classification', nRounds: 10 })
+  const model = await XGBModel.create({ task: 'classification', numRound: 10 })
   model.fit(X, y)
   const preds = model.predict(X)
   assert(preds.length === n, `expected ${n} predictions, got ${preds.length}`)
@@ -1146,7 +1450,7 @@ await test('task: classification (multiclass auto-promotes)', async () => {
     X.data[i * f + 1] = (i * 3 % n) / n
     y[i] = i % 3
   }
-  const model = await XGBModel.create({ task: 'classification', nRounds: 10 })
+  const model = await XGBModel.create({ task: 'classification', numRound: 10 })
   model.fit(X, y)
   const preds = model.predict(X)
   assert(preds.length === n, `expected ${n} predictions`)
@@ -1166,7 +1470,7 @@ await test('task: regression', async () => {
     X.data[i * f + 1] = (i * 7 % n) / n
     y[i] = 2.5 * X.data[i * f] + 1.3 * X.data[i * f + 1]
   }
-  const model = await XGBModel.create({ task: 'regression', nRounds: 20 })
+  const model = await XGBModel.create({ task: 'regression', numRound: 20 })
   model.fit(X, y)
   const preds = model.predict(X)
   assert(preds.length === n, `expected ${n} predictions`)
@@ -1174,7 +1478,7 @@ await test('task: regression', async () => {
 })
 
 await test('task + objective coexist (objective wins)', async () => {
-  const model = await XGBModel.create({ task: 'classification', objective: 'binary:logistic', nRounds: 5 })
+  const model = await XGBModel.create({ task: 'classification', objective: 'binary:logistic', numRound: 5 })
   const X = { data: new Float64Array([0, 0, 1, 1]), rows: 2, cols: 2 }
   const y = new Int32Array([0, 1])
   model.fit(X, y)
@@ -1184,7 +1488,7 @@ await test('task + objective coexist (objective wins)', async () => {
 
 await test('task: unknown throws', async () => {
   let threw = false
-  const model = await XGBModel.create({ task: 'clustering', nRounds: 5 })
+  const model = await XGBModel.create({ task: 'clustering', numRound: 5 })
   try {
     const X = { data: new Float64Array([0, 0, 1, 1]), rows: 2, cols: 2 }
     const y = new Int32Array([0, 1])

@@ -26,6 +26,18 @@ function getLastError(wasm) {
   return wasm.ccall('XGBGetLastError', 'string', [], [])
 }
 
+function checkedMatrixSize(rows, cols) {
+  if (!Number.isSafeInteger(rows) || !Number.isSafeInteger(cols) ||
+      rows < 1 || cols < 1) {
+    throw new Error(`Invalid matrix dimensions: nrow=${rows}, ncol=${cols}`)
+  }
+  const size = rows * cols
+  if (!Number.isSafeInteger(size)) {
+    throw new Error(`Matrix size is not a safe integer: nrow=${rows}, ncol=${cols}`)
+  }
+  return size
+}
+
 class DMatrix {
   #handle = null
   #freed = false
@@ -36,17 +48,30 @@ class DMatrix {
 
     // Flatten input if 2D array
     let flat, rows, cols
-    if (Array.isArray(data) && Array.isArray(data[0])) {
+    if (Array.isArray(data)) {
+      if (data.length === 0 || !Array.isArray(data[0])) {
+        throw new Error('data must be a non-empty rectangular number[][]')
+      }
       rows = data.length
       cols = data[0].length
-      flat = new Float32Array(rows * cols)
+      flat = new Float32Array(checkedMatrixSize(rows, cols))
       for (let i = 0; i < rows; i++) {
+        if (!Array.isArray(data[i]) || data[i].length !== cols) {
+          throw new Error(`data must be rectangular; row ${i} has length ${data[i]?.length}, expected ${cols}`)
+        }
         for (let j = 0; j < cols; j++) {
-          flat[i * cols + j] = data[i][j]
+          const value = data[i][j]
+          if (typeof value !== 'number') {
+            throw new Error(`data[${i}][${j}] must be a number`)
+          }
+          flat[i * cols + j] = value
         }
       }
     } else if (data instanceof Float32Array) {
-      if (!nrow || !ncol) throw new Error('nrow and ncol required for Float32Array input')
+      const size = checkedMatrixSize(nrow, ncol)
+      if (data.length !== size) {
+        throw new Error(`data.length (${data.length}) !== nrow * ncol (${size})`)
+      }
       flat = data
       rows = nrow
       cols = ncol
@@ -75,16 +100,21 @@ class DMatrix {
     wasm._free(dataPtr)
     wasm._free(outPtr)
 
-    // Register for leak detection
-    this.#ptrRef = [this.#handle]
-    if (registry) {
-      registry.register(this, {
-        ptr: this.#ptrRef,
-        freeFn: (h) => getXGB()._XGDMatrixFree(h)
-      }, this)
-    }
+    try {
+      // Register for leak detection
+      this.#ptrRef = [this.#handle]
+      if (registry) {
+        registry.register(this, {
+          ptr: this.#ptrRef,
+          freeFn: (h) => getXGB()._XGDMatrixFree(h)
+        }, this)
+      }
 
-    if (label) this.setLabel(label)
+      if (label) this.setLabel(label)
+    } catch (error) {
+      this.dispose()
+      throw error
+    }
   }
 
   get handle() {
