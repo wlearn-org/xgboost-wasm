@@ -3,3 +3,12 @@ Copyright 2026 Anton Zemlyansky (WASM port)
 
 This product includes XGBoost.
 Copyright (c) 2019 by Contributors
+
+XGBoost v3.4.1: https://github.com/dmlc/xgboost/tree/6fe8c547bdd21c73e4555d85b087d9260595d30d
+Local change: checked conversion of sketch size for the wasm32 address space.
+
+This product includes dmlc-core under Apache-2.0.
+Copyright (c) 2015 by Contributors
+https://github.com/dmlc/dmlc-core
+
+Browser bundles include @wlearn/core under Apache-2.0 (see licenses/wlearn-core).

@@ -122,7 +122,7 @@ class Booster {
   predict(dtest, { ntreeLimit = 0, type = 0 } = {}) {
     const wasm = getXGB()
 
-    // v3.2.0 requires iteration_begin/iteration_end (not iteration_range)
+    // The C prediction API takes iteration_begin/iteration_end.
     const config = JSON.stringify({
       type,
       iteration_begin: 0,

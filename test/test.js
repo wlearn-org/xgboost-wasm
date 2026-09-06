@@ -1263,7 +1263,7 @@ const fixturesDir = join(__dirname, 'fixtures')
 const hasFixtures = existsSync(join(fixturesDir, 'regression.data.json'))
 
 if (!hasFixtures) {
-  console.log('  SKIP: no fixtures (run: conda run -n prob python test/fixtures/generate.py)')
+  console.log('  SKIP: no fixtures (run: python test/fixtures/generate.py with XGBoost >=3.4.1)')
 } else {
   function loadFixture(name) {
     return JSON.parse(readFileSync(join(fixturesDir, `${name}.data.json`), 'utf-8'))
@@ -1271,6 +1271,26 @@ if (!hasFixtures) {
 
   function loadFixtureModel(name) {
     return readFileSync(join(fixturesDir, name))
+  }
+
+  for (const name of ['expectile', 'quantile', 'absolute']) {
+    await test(`Cross-runtime: ${name} native model parity`, async () => {
+      const fix = loadFixture(name)
+      const booster = Booster.loadModel(loadFixtureModel(`${name}.ubj`))
+      let dm
+      try {
+        dm = new DMatrix(fix.X)
+        const actual = booster.predict(dm)
+        assert(actual.length === fix.predictions.length, 'prediction lengths differ')
+        for (let i = 0; i < actual.length; i++) {
+          assert(Number.isFinite(actual[i]) && Math.abs(actual[i] - fix.predictions[i]) < 1e-5,
+            `pred[${i}]: WASM=${actual[i]} Python=${fix.predictions[i]}`)
+        }
+      } finally {
+        if (dm) dm.dispose()
+        booster.dispose()
+      }
+    })
   }
 
   await test('Cross-runtime: regression parity', async () => {
@@ -1392,6 +1412,35 @@ await test('unified model honors explicit regression for integer-valued targets'
   model.dispose()
 })
 
+for (const [objective, extra] of [
+  ['reg:expectileerror', { expectile_alpha: 0.8 }],
+  ['reg:quantileerror', { quantile_alpha: 0.8 }],
+  ['reg:absoluteerror', {}]
+]) {
+  await test(`${objective}: unified fit and WLRN round trip`, async () => {
+    const X = Array.from({ length: 40 }, (_, i) => [i / 10, (i * 7 % 11) / 10])
+    const y = Float64Array.from(X, ([a, b]) => 2 * a + b + 0.1)
+    const model = await UnifiedXGBModel.create({
+      task: 'regression', objective, ...extra,
+      numRound: 20, max_depth: 2, seed: 42
+    })
+    let restored
+    try {
+      model.fit(X, y)
+      const expected = model.predict(X)
+      assert(expected.length === y.length && expected.every(Number.isFinite),
+        'expected one finite prediction per row')
+      assert(new Set(expected).size > 1, 'model did not learn a nonconstant response')
+      restored = await UnifiedXGBModel.load(model.save())
+      assert(restored.getParams().objective === objective, 'objective was not preserved')
+      assertArrayEqual(restored.predict(X), expected)
+    } finally {
+      if (restored) restored.dispose()
+      model.dispose()
+    }
+  })
+}
+
 await test('unified model preserves predictions and bundle after invalid refit', async () => {
   const X = { data: new Float64Array([0, 0.1, 0.9, 1]), rows: 4, cols: 1 }
   const model = await UnifiedXGBModel.create({
@@ -1405,6 +1454,28 @@ await test('unified model preserves predictions and bundle after invalid refit',
   assertArrayEqual(model.predict(X), beforePredictions)
   assertArrayEqual(model.save(), beforeBundle)
   model.dispose()
+})
+
+await test('legacy loaded UBJ bytes survive saves and failed refits', async () => {
+  const bytes = readFileSync(join(__dirname, 'fixtures', 'legacy-regression.wlrn'))
+  const original = decodeBundle(new Uint8Array(bytes)).blobs
+  const model = await UnifiedXGBModel.load(bytes)
+  const X = [[0, 1], [1, 1], [2, 0], [3, 1]]
+  try {
+    // The loaded artifact must be owned independently of the caller's buffer.
+    bytes.fill(0)
+    const before = model.predict(X)
+    assertArrayEqual(decodeBundle(model.save()).blobs, original)
+    assertThrows(() => model.fit(X, new Float64Array([1])), /y length/)
+    assertArrayEqual(model.predict(X), before)
+    assertArrayEqual(decodeBundle(model.save()).blobs, original)
+    model.fit(X, new Float64Array([0.2, 1.3, 1.9, 3.6]))
+    const refitted = decodeBundle(model.save()).blobs
+    assert(refitted.length !== original.length || refitted.some((v, i) => v !== original[i]),
+      'successful refit kept the original model bytes')
+  } finally {
+    model.dispose()
+  }
 })
 
 await test('unified model rejects invalid boosting round counts', async () => {

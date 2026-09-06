@@ -51,6 +51,7 @@ const LOAD_SENTINEL = Symbol('load')
 
 class XGBModel {
   #booster = null
+  #loadedModelBytes = null
   #freed = false
   #boosterRef = null
   #params = {}
@@ -61,8 +62,9 @@ class XGBModel {
 
   constructor(handle, params, extra) {
     if (handle === LOAD_SENTINEL) {
-      // Load path: handle is sentinel, params is Booster, extra is { params, nrClass, classes }
+      // The owned artifact survives native version-metadata rewrites until refit.
       this.#booster = params
+      this.#loadedModelBytes = new Uint8Array(extra.modelBytes)
       this.#params = extra.params || {}
       this.#nrClass = extra.nrClass || 0
       this.#classes = extra.classes ? new Int32Array(extra.classes) : null
@@ -187,6 +189,7 @@ class XGBModel {
     }
 
     this.#booster = booster
+    this.#loadedModelBytes = null
     this.#params = fitParams
     this.#classes = classes
     this.#nrClass = nrClass
@@ -321,7 +324,7 @@ class XGBModel {
 
   save() {
     this.#ensureFitted()
-    const rawBytes = this.#booster.saveModel('ubj')
+    const rawBytes = this.#loadedModelBytes || this.#booster.saveModel('ubj')
     const identity = this.#booster.modelIdentity()
     const typeId = this.#isClassifier()
       ? 'wlearn.xgboost.classifier@1'
@@ -410,6 +413,7 @@ class XGBModel {
     }
 
     return new XGBModel(LOAD_SENTINEL, booster, {
+      modelBytes: raw,
       params,
       nrClass: meta.nrClass || 0,
       classes: meta.classes || null
@@ -428,6 +432,7 @@ class XGBModel {
     if (leakRegistry) leakRegistry.unregister(this)
 
     this.#booster = null
+    this.#loadedModelBytes = null
     this.#fitted = false
   }
 

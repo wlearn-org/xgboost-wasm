@@ -1,7 +1,7 @@
 {
   "name": "@wlearn/xgboost",
   "version": "0.3.0",
-  "description": "XGBoost v3.2.0 compiled to WebAssembly -- gradient-boosted trees in browsers and Node.js",
+  "description": "XGBoost v3.4.1 compiled to WebAssembly -- gradient-boosted trees in browsers and Node.js",
   "type": "commonjs",
   "main": "src/index.js",
   "exports": {
@@ -15,6 +15,7 @@
     "wasm/",
     "dist/",
     "LICENSE",
+    "licenses/",
     "NOTICE",
     "README.md"
   ],

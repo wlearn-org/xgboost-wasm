@@ -1,0 +1,15 @@
+diff --git a/src/common/quantile.cc b/src/common/quantile.cc
+index 8a7f07bf2..4d48d675b 100644
+--- a/src/common/quantile.cc
++++ b/src/common/quantile.cc
+@@ -36,7 +36,9 @@ HostSketchContainer::HostSketchContainer(Context const *ctx, bst_bin_t max_bin,
+   ParallelFor(sketches_.size(), n_threads_, Sched::Auto(), [&](auto i) {
+     auto eps = SketchEpsilon(max_bins_, columns_size_[i]);
+     if (!IsCat(this->feature_types_, i)) {
+-      sketches_[i] = WQSketch{columns_size_[i], eps};
++      // bst_idx_t remains 64-bit on platforms with a 32-bit address space.
++      CHECK_LE(columns_size_[i], std::numeric_limits<std::size_t>::max());
++      sketches_[i] = WQSketch{static_cast<std::size_t>(columns_size_[i]), eps};
+     }
+   });
+ }

@@ -1,8 +1,8 @@
 # @wlearn/xgboost
 
-XGBoost v3.2.0 compiled to WebAssembly. Gradient-boosted trees, random forests, classification, and regression in browsers and Node.js.
+XGBoost v3.4.1 compiled to WebAssembly. Gradient-boosted trees, random forests, classification, and regression in browsers and Node.js.
 
-Part of [wlearn](https://wlearn.org) ([GitHub](https://github.com/wlearn-org), [all packages](https://github.com/wlearn-org/wlearn#repository-structure)). Based on [XGBoost v3.2.0](https://github.com/dmlc/xgboost) (Apache-2.0). CommonJS.
+Part of [wlearn](https://wlearn.org) ([GitHub](https://github.com/wlearn-org), [all packages](https://github.com/wlearn-org/wlearn#repository-structure)). Based on [XGBoost v3.4.1](https://github.com/dmlc/xgboost) (Apache-2.0). CommonJS.
 
 ## Install
 
@@ -198,7 +198,7 @@ Use `.dispose()` when creating and discarding many `DMatrix`, `Booster`, or `XGB
 
 ## Cross-runtime compatibility
 
-Models saved in Python XGBoost 3.2.0 load and predict identically in this package (verified with tolerance < 1e-4). WLRN bundles round-trip between JS and Python.
+The native XGBoost 3.4.1 fixtures cover classification and squared-error, expectile, quantile and absolute-error regression (prediction tolerance < 1e-5). Older 3.2 WLRN model bytes are preserved through load/save until a successful refit. WLRN bundles round-trip between JS and Python.
 
 ## Build from source
 

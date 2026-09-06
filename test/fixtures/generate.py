@@ -5,15 +5,17 @@ Trains small XGBoost models in Python and saves:
 - Input data (JSON)
 - Expected predictions (JSON)
 
-Run: conda run -n prob python test/fixtures/generate.py
+Run from the repository root with native XGBoost 3.4.1 or newer:
+    python test/fixtures/generate.py
 """
 import json
+from pathlib import Path
 import numpy as np
 import xgboost as xgb
 
 print(f'xgboost {xgb.__version__}')
 
-fixtures_dir = 'test/fixtures'
+fixtures_dir = Path(__file__).parent
 
 
 def save_fixture(name, X, y, params, num_round, preds):
@@ -119,5 +121,21 @@ with open(f'{fixtures_dir}/inference.data.json', 'w') as f:
         'model': 'regression.ubj'
     }, f)
 print(f'  inference: {len(X_test)} samples, {len(preds_test)} predictions')
+
+# The 3.3 expectile objective and 3.4 quantile/MAE implementations must also
+# load in WASM; old-objective fixtures alone cannot detect an outdated runtime.
+for name, objective, extra in [
+    ('expectile', 'reg:expectileerror', {'expectile_alpha': 0.8}),
+    ('quantile', 'reg:quantileerror', {'quantile_alpha': 0.8}),
+    ('absolute', 'reg:absoluteerror', {}),
+]:
+    X = np.random.RandomState(42).rand(40, 2).astype(np.float32)
+    y = (2 * X[:, 0] + X[:, 1] + 0.1).astype(np.float32)
+    params = {'objective': objective, **extra, 'max_depth': 2,
+              'eta': 0.3, 'seed': 42, 'nthread': 1, 'verbosity': 0}
+    dtrain = xgb.DMatrix(X, label=y)
+    model = xgb.train(params, dtrain, num_boost_round=20)
+    model.save_model(fixtures_dir / f'{name}.ubj')
+    save_fixture(name, X, y, params, 20, model.predict(dtrain))
 
 print('\nDone!')

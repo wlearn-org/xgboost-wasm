@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build XGBoost v3.2.0 as WASM via Emscripten
+# Build XGBoost v3.4.1 as WASM via Emscripten
 # Prerequisites: emsdk activated (emcc, emcmake, emmake in PATH)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,8 +27,14 @@ echo "=== Applying patches ==="
 if [ -d "${PROJECT_DIR}/patches" ] && ls "${PROJECT_DIR}/patches"/*.patch &> /dev/null; then
   for patch in "${PROJECT_DIR}/patches"/*.patch; do
     echo "Applying: $(basename "$patch")"
-    (cd "$UPSTREAM_DIR" && git apply --check "$patch" 2>/dev/null && git apply "$patch") || \
-      echo "  (already applied or not applicable)"
+    if (cd "$UPSTREAM_DIR" && git apply --check "$patch" 2>/dev/null); then
+      (cd "$UPSTREAM_DIR" && git apply "$patch")
+    elif (cd "$UPSTREAM_DIR" && git apply --reverse --check "$patch" 2>/dev/null); then
+      echo "  (already applied)"
+    else
+      echo "ERROR: patch does not apply: $patch"
+      exit 1
+    fi
   done
 else
   echo "  No patches found"
@@ -90,8 +96,9 @@ bash "${SCRIPT_DIR}/verify-exports.sh" "${OUTPUT_DIR}/xgboost.js"
 
 echo "=== Writing BUILD_INFO ==="
 cat > "${OUTPUT_DIR}/BUILD_INFO" <<EOF
-upstream: xgboost v3.2.0
+upstream: xgboost v3.4.1
 upstream_commit: $(cd "$UPSTREAM_DIR" && git rev-parse HEAD)
+local_patches: 0001-check-sketch-size-on-wasm32.patch
 build_date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 emscripten: $(emcc --version | head -1)
 build_flags: -O2 -DDMLC_LOG_STACK_TRACE=0 SINGLE_FILE=1
