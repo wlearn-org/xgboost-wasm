@@ -453,9 +453,9 @@ class XGBModel {
     return this
   }
 
-  static defaultSearchSpace() {
+  static defaultSearchSpace(task) {
     return {
-      objective: { type: 'categorical', values: ['binary:logistic', 'reg:squarederror'] },
+      ...(task ? {} : { objective: { type: 'categorical', values: ['binary:logistic', 'reg:squarederror'] } }),
       max_depth: { type: 'int_uniform', low: 3, high: 10 },
       eta: { type: 'log_uniform', low: 0.01, high: 0.3 },
       numRound: { type: 'int_uniform', low: 50, high: 500 },
